@@ -16,7 +16,8 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 <body>
 <div id="c">
   <canvas id="g" width="420" height="700"></canvas>
-  <div id="tip">🔥 老火锅开张！</div>
+  <div id="tip">🔥 加载中...</div>
+  <div id="status" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:#ffcc00;font-size:16px;text-align:center;pointer-events:none">正在启动...</div>
 </div>
 <script>
 // ============================================================
@@ -63,7 +64,12 @@ const _=0;
 // ============================================================
 // RENDERER
 // ============================================================
-const cx=document.getElementById('g').getContext('2d');
+const _g=document.getElementById('g');
+const cx=_g?_g.getContext('2d'):null;
+if(!cx){
+  document.getElementById('tip').textContent='⚠ Canvas初始化失败，请检查浏览器设置';
+  throw new Error('Canvas 2D context not available');
+}
 const r=(x,y,w,h,c2)=>{cx.fillStyle=c2;cx.fillRect(x,y,w,h)};
 const pr=(x,y,w,h,c2)=>{cx.fillStyle=c2||cx.fillStyle;const p=PU;cx.fillRect(Math.floor(x/p)*p,Math.floor(y/p)*p,Math.floor(w/p)*p,Math.floor(h/p)*p)};
 const bx=(x,y,w,h,bc,fc,s)=>{s=s||PU;pr(x,y,w,s,bc);pr(x,y+h-s,w,s,bc);pr(x,y,s,h,bc);pr(x+w-s,y,s,h,bc);if(fc)pr(x+s,y+s,w-s*2,h-s*2,fc)};
@@ -1759,11 +1765,26 @@ function loop(t){
 // ============================================================
 // START
 // ============================================================
+try{
+// 隐藏加载状态遮罩
+const stDiv=document.getElementById('status');
+if(stDiv)stDiv.style.display='none';
+// 绘制测试色块确认 Canvas 工作
+cx.fillStyle='#cc3333';cx.fillRect(10,10,20,20);
 loadGame();restoreStaff();
 checkOffline();
 if(_wangHired||_luoHired||_qianHired)tip('📂 进度已恢复！继续经营吧');
 else tip('🔥 老火锅开张！接待3批客人后可招员工');
 requestAnimationFrame(loop);
+}catch(e){
+  cx.fillStyle='#ff0000';
+  cx.font='bold 14px monospace';
+  cx.fillText('启动错误: '+e.message,10,60);
+  cx.fillText('检查控制台(F12)获取详细信息',10,80);
+  console.error('启动失败:',e);
+  const stDiv2=document.getElementById('status');
+  if(stDiv2)stDiv2.textContent='⚠ 初始化失败: '+e.message;
+}
 </script>
 </body>
 </html>
