@@ -1115,8 +1115,26 @@ function TXTAB(cx2,tables){
         pr(d,t.y+3,4,3,C.WHITE);
         pr(d,t.y+t.h-8,4,3,C.WHITE);
       }
-      // 桌位容量标签（空桌时显示）
+      // 桌位容量标签
       if(t.state==='clean')tx(t.label,tx+4,t.y+t.h-16,C.GOLD,8);
+      else if(t.state==='occupied'&&t.cust&&t.cust.groupSize>1)
+        tx(`${t.cust.groupSize}人`,tx+4,t.y+t.h-16,C.WHITE,8);
+      // 椅子（根据桌位容量）
+      const chairC=t.state==='dirty'?'#886644':'#a07040';
+      const chW=8,chH=12,chGap=4; // chair width/height/gap from table
+      // 左侧椅子
+      bx(tx-chW-chGap,t.y+8,chW,chH,C.DBRN,chairC,2);
+      pr(tx-chW-chGap+2,t.y+4,4,6,chairC); // backrest
+      // 右侧椅子
+      bx(tx+t.w+chGap,t.y+8,chW,chH,C.DBRN,chairC,2);
+      pr(tx+t.w+chGap+2,t.y+4,4,6,chairC);
+      // 4人桌额外上下椅子
+      if(t.max>=4){
+        pr(tx+t.w/2-8,t.y-14,16,6,chairC);  //上椅面
+        pr(tx+t.w/2-8,t.y-10,16,4,C.DBRN);   //上椅框
+        pr(tx+t.w/2-8,t.y+t.h+6,16,6,chairC); //下椅面
+        pr(tx+t.w/2-8,t.y+t.h+4,16,4,C.DBRN);
+      }
       // Hotpot on table
       dr(SHP,tx+t.w/2-16,t.y+4,0.85);
       // Steam from hotpot when occupied
@@ -1334,7 +1352,7 @@ function drawRoad(cx2){
       cx.globalAlpha=1;
     }
   });
-  // Potted plants by entrance (更大更精致)
+  // Potted plants by entrance
   const plx=DOOR.x-cx2-24;
   if(plx>-30&&plx<W){
     pr(plx+2,s+18,10,10,C.DGRAY);    // pot
@@ -1349,6 +1367,28 @@ function drawRoad(cx2){
     r(prx-5,s+27,12,3,C.DBRN);
     pr(prx-2,s+14,6,6,C.GREEN);
     pr(prx,s+10,4,6,C.DGREEN);
+  }
+  // 排队顾客可视化（门口右侧）
+  if(QUEUE.length>0){
+    const qx=DOOR.x+DOOR.w+16,cnt=Math.min(QUEUE.length,5);
+    for(let i=0;i<cnt;i++){
+      const qox=qx+i*14-cx2;
+      if(qox>-20&&qox<W){
+        // 小人简化符号
+        pr(qox+2,s+18,6,2,C.DGRAY);  // head
+        pr(qox+1,s+20,8,4,C.DGRAY);  // body
+        pr(qox+4,s+24,2,4,C.DGRAY);  // legs
+        // 等待条
+        const q=QUEUE[i];
+        if(q){
+          const pct=Math.min(1,q.elapsed/q.patience);
+          r(qox,s+28,12,2,'rgba(0,0,0,.3)');
+          r(qox,s+28,12*(1-pct),2,C.YELLOW);
+        }
+      }
+    }
+    // "排队" 标签
+    tx(`🚶排队${QUEUE.length}`,DOOR.x+DOOR.w+16-cx2,s+16,C.YELLOW,9);
   }
 
   // Sidewalk — 纹理更丰富
