@@ -90,7 +90,8 @@ const C = {
 // =====================================================
 // DRAW UTILITIES
 // =====================================================
-const ctx = document.getElementById('gameCanvas').getContext('2d');
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
 
 function rect(x,y,w,h,c){ctx.fillStyle=c;ctx.fillRect(x,y,w,h);}
 
