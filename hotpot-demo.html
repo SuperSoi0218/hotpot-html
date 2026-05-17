@@ -1,0 +1,756 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>🔥 火锅店 · 像素经营 Demo</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
+body {
+  background: #1a1a2e;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  font-family: 'Courier New', monospace;
+}
+#gameContainer {
+  position: relative;
+  width: 420px;
+  height: 700px;
+  background: #2a1f0e;
+  border: 4px solid #5c3a1e;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 0 40px rgba(0,0,0,0.5);
+}
+canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+}
+#ui-overlay {
+  position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+  pointer-events: none;
+}
+.tooltip {
+  position: absolute; bottom: 10px; left: 10px; right: 10px;
+  background: rgba(0,0,0,0.8); color: #ffcc00;
+  padding: 8px 12px; border-radius: 4px;
+  font-size: 13px; text-align: center;
+  pointer-events: none; transition: opacity 0.3s;
+}
+@media (max-width: 440px) {
+  #gameContainer { width: 100vw; height: 100vh; border: none; border-radius: 0; }
+}
+</style>
+</head>
+<body>
+<div id="gameContainer">
+  <canvas id="gameCanvas" width="420" height="700"></canvas>
+  <div class="tooltip" id="tooltip">点击顾客安排入座 · 点击灶台开始烹饪</div>
+</div>
+
+<script>
+// ==================== 游戏引擎 ====================
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const W = 420, H = 700;
+const PIXEL = 4; // 像素单位
+
+// ---------- 像素绘制工具 ----------
+function rect(x, y, w, h, color) {
+  ctx.fillStyle = color;
+  ctx.fillRect(Math.floor(x), Math.floor(y), Math.floor(w), Math.floor(h));
+}
+function pRect(x, y, w, h, color) {
+  ctx.fillStyle = color;
+  ctx.fillRect(Math.floor(x/PIXEL)*PIXEL, Math.floor(y/PIXEL)*PIXEL, Math.floor(w/PIXEL)*PIXEL, Math.floor(h/PIXEL)*PIXEL);
+}
+function drawText(text, x, y, color='#fff', size=14) {
+  ctx.fillStyle = color;
+  ctx.font = `bold ${size}px 'Courier New', monospace`;
+  ctx.textAlign = 'left';
+  ctx.fillText(text, Math.floor(x), Math.floor(y));
+}
+function drawBorder(x, y, w, h, borderColor, fillColor) {
+  const s = PIXEL;
+  pRect(x, y, w, s, borderColor);
+  pRect(x, y+h-s, w, s, borderColor);
+  pRect(x, y, s, h, borderColor);
+  pRect(x+w-s, y, s, h, borderColor);
+  pRect(x+s, y+s, w-2*s, h-2*s, fillColor);
+}
+
+// ---------- 像素精灵 ----------
+const C = {
+  RED: '#cc3333', DARK_RED: '#881111', ORANGE: '#ff6633',
+  YELLOW: '#ffcc00', GOLD: '#daa520', BROWN: '#8b4513',
+  DARK_BROWN: '#5c2e00', GREEN: '#339933', WHITE: '#ffffff',
+  CREAM: '#fff8e7', LIGHT_GRAY: '#ddd', GRAY: '#888',
+  DARK_GRAY: '#444', BLACK: '#222', BLUE: '#3366cc',
+  SKIN: '#ffcc99', TRANSPARENT: 'transparent',
+};
+
+function drawPixels(data, x, y, scale=1) {
+  const s = PIXEL * scale;
+  for (let row = 0; row < data.length; row++) {
+    for (let col = 0; col < data[row].length; col++) {
+      const color = data[row][col];
+      if (color && color !== 'transparent') {
+        ctx.fillStyle = color;
+        ctx.fillRect(x + col*s, y + row*s, s, s);
+      }
+    }
+  }
+}
+
+// 像素精灵数据
+const SPRITES = {
+  hotpot: [
+    [C.GRAY,C.GRAY,C.GRAY,C.GRAY,C.GRAY,C.GRAY,C.GRAY,C.GRAY],
+    [C.GRAY,C.DARK_RED,C.RED,C.RED,C.RED,C.RED,C.DARK_RED,C.GRAY],
+    [C.GRAY,C.RED,C.ORANGE,C.ORANGE,C.ORANGE,C.ORANGE,C.RED,C.GRAY],
+    [C.GRAY,C.RED,C.ORANGE,C.YELLOW,C.YELLOW,C.ORANGE,C.RED,C.GRAY],
+    [C.GRAY,C.RED,C.ORANGE,C.ORANGE,C.ORANGE,C.ORANGE,C.RED,C.GRAY],
+    [C.GRAY,C.DARK_RED,C.RED,C.RED,C.RED,C.RED,C.DARK_RED,C.GRAY],
+    [C.GRAY,C.BROWN,C.BROWN,C.DARK_BROWN,C.DARK_BROWN,C.BROWN,C.BROWN,C.GRAY],
+    [C.GRAY,C.GRAY,C.GRAY,C.GRAY,C.GRAY,C.GRAY,C.GRAY,C.GRAY],
+  ],
+  coin: [
+    [C.GOLD,C.GOLD,C.GOLD,C.GOLD,C.GOLD,C.GOLD],
+    [C.GOLD,C.YELLOW,C.YELLOW,C.YELLOW,C.YELLOW,C.GOLD],
+    [C.GOLD,C.YELLOW,C.WHITE,C.WHITE,C.YELLOW,C.GOLD],
+    [C.GOLD,C.YELLOW,C.WHITE,C.WHITE,C.YELLOW,C.GOLD],
+    [C.GOLD,C.YELLOW,C.YELLOW,C.YELLOW,C.YELLOW,C.GOLD],
+    [C.GOLD,C.GOLD,C.GOLD,C.GOLD,C.GOLD,C.GOLD],
+  ],
+  diamond: [
+    [C.TRANSPARENT,C.TRANSPARENT,C.BLUE,C.BLUE,C.TRANSPARENT,C.TRANSPARENT],
+    [C.TRANSPARENT,C.BLUE,C.BLUE,C.BLUE,C.BLUE,C.TRANSPARENT],
+    [C.BLUE,C.BLUE,C.WHITE,C.WHITE,C.BLUE,C.BLUE],
+    [C.BLUE,C.BLUE,C.BLUE,C.BLUE,C.BLUE,C.BLUE],
+    [C.TRANSPARENT,C.BLUE,C.BLUE,C.BLUE,C.BLUE,C.TRANSPARENT],
+    [C.TRANSPARENT,C.TRANSPARENT,C.BLUE,C.BLUE,C.TRANSPARENT,C.TRANSPARENT],
+  ],
+  customer: (i) => {
+    const skin = [C.SKIN, C.CREAM, C.YELLOW, C.ORANGE][i % 4];
+    const hair = [[C.BLACK, C.BROWN, C.GOLD, C.DARK_GRAY][i % 4]];
+    return [
+      [hair[0],hair[0],hair[0],hair[0],hair[0],hair[0]],
+      [hair[0],hair[0],hair[0],hair[0],hair[0],hair[0]],
+      [skin,skin,skin,skin,skin,skin],
+      [skin,C.WHITE,skin,skin,C.WHITE,skin],
+      [skin,skin,skin,skin,skin,skin],
+      [skin,skin,skin,skin,skin,skin],
+    ];
+  },
+};
+
+// ==================== 游戏逻辑 ====================
+
+// ---------- 游戏数据 ----------
+const G = {
+  gold: 500,
+  diamond: 20,
+  level: 1,
+  exp: 0,
+  restaurantLevel: 1,
+  popularity: 0,
+  seats: 4,
+  totalServed: 0,
+  totalEarned: 0,
+  dayCustomers: 0,
+  dayTimer: 0,
+  isNight: false,
+};
+
+// ---------- 菜单 ----------
+const MENU = [
+  { id:1, name:'经典麻辣锅', price:68, cookTime:5, unlockLv:1, emoji:'🌶️' },
+  { id:2, name:'番茄牛腩锅', price:88, cookTime:6, unlockLv:2, emoji:'🍅' },
+  { id:3, name:'菌菇养生锅', price:78, cookTime:5, unlockLv:2, emoji:'🍄' },
+  { id:4, name:'海鲜拼盘', price:128, cookTime:8, unlockLv:3, emoji:'🦐' },
+  { id:5, name:'极品肥牛', price:68, cookTime:3, unlockLv:1, emoji:'🥩' },
+];
+const LEVEL_REQS = [0, 100, 150, 220, 320, 450, 600, 800, 1050, 1350, 1700];
+
+// ---------- 顾客 ----------
+let customers = [];
+let customerId = 0;
+let spawnTimer = 0;
+
+function createCustomer() {
+  const types = ['normal','foodie','big_eater','couple','vip'];
+  const weights = [0.5, 0.15, 0.15, 0.1, 0.1];
+  const r = Math.random();
+  let type = types[0];
+  for (let i = 0, sum = 0; i < weights.length; i++) {
+    sum += weights[i];
+    if (r < sum) { type = types[i]; break; }
+  }
+  const typeConfig = {
+    normal: { patience: 30, tip: 1.0, label: '食客' },
+    foodie: { patience: 20, tip: 2.0, label: '美食家' },
+    big_eater: { patience: 35, tip: 1.5, label: '大胃王' },
+    couple: { patience: 40, tip: 1.8, label: '情侣' },
+    vip: { patience: 15, tip: 3.0, label: 'VIP' },
+  };
+  const cfg = typeConfig[type];
+  return {
+    id: ++customerId,
+    type, label: cfg.label,
+    patience: cfg.patience + Math.random() * 10,
+    maxPatience: cfg.patience + Math.random() * 10,
+    tipRate: cfg.tip,
+    satisfaction: 100,
+    state: 'waiting', // waiting | seated | eating | done | left
+    orderId: null,
+    seatIndex: -1,
+    avatarIdx: Math.floor(Math.random() * 4),
+    x: 0, y: 0,
+  };
+}
+
+// ---------- 灶台 ----------
+const STOVES = [
+  { id:1, name:'灶台1', busy:false, progress:0, recipeId:null, cookTime:0 },
+  { id:2, name:'灶台2', busy:false, progress:0, recipeId:null, cookTime:0 },
+  { id:3, name:'灶台3', busy:false, progress:0, recipeId:null, cookTime:0 }, // locked until lv 3
+  { id:4, name:'灶台4', busy:false, progress:0, recipeId:null, cookTime:0 }, // locked until lv 5
+];
+
+// ---------- 员工 ----------
+let staffs = [];
+let staffId = 0;
+
+function addStaff(name, role) {
+  const roles = {
+    waiter: { salary:5, eff:1.0, label:'服务员' },
+    chef: { salary:8, eff:1.0, label:'厨师' },
+    cleaner: { salary:3, eff:1.0, label:'清洁工' },
+    manager: { salary:12, eff:1.0, label:'店长' },
+  };
+  const cfg = roles[role];
+  staffs.push({
+    id: ++staffId, name, role, level:1,
+    salary: cfg.salary, efficiency: cfg.eff,
+    label: cfg.label,
+  });
+}
+
+// 初始员工
+addStaff('小王', 'waiter');
+addStaff('老李', 'chef');
+
+// ---------- 核心函数 ----------
+
+function getExpNeeded(lv) {
+  return LEVEL_REQS[lv] || 100 + lv * 80;
+}
+
+function addGold(amount) {
+  G.gold += amount;
+  G.totalEarned += amount;
+  G.exp += Math.floor(amount * 0.1);
+  checkLevelUp();
+}
+
+function checkLevelUp() {
+  const needed = getExpNeeded(G.level);
+  if (G.exp >= needed && G.level < 20) {
+    G.exp -= needed;
+    G.level++;
+    G.diamond += Math.floor(G.level / 2);
+    log(`🎉 升级! Lv.${G.level} ${['','街边学徒','小摊主','火锅新星','火热小店','人气旺铺','城市美食','火锅达人','餐饮名家'][G.level] || '火锅大师'}`);
+  }
+}
+
+function log(msg) {
+  document.getElementById('tooltip').textContent = msg;
+  setTimeout(() => {
+    document.getElementById('tooltip').textContent = '点击顾客安排入座 · 点击灶台开始烹饪';
+  }, 2500);
+}
+
+// ---------- 顾客入座逻辑 ----------
+function trySeatCustomer(cust) {
+  // 找空位
+  const seated = customers.filter(c => c.state === 'seated' || c.state === 'eating');
+  if (seated.length >= G.seats) return false;
+  // 找第一个空座
+  const takenSeats = new Set(seated.map(c => c.seatIndex));
+  let seatIdx = 0;
+  while (takenSeats.has(seatIdx)) seatIdx++;
+  cust.state = 'seated';
+  cust.seatIndex = seatIdx;
+  // 自动点单
+  const available = MENU.filter(m => m.unlockLv <= G.level);
+  if (available.length > 0) {
+    const item = available[Math.floor(Math.random() * available.length)];
+    cust.orderId = item.id;
+  }
+  return true;
+}
+
+// ==================== 渲染 ====================
+
+function drawBackground() {
+  // 地板
+  rect(0, 0, W, H, '#3a2818');
+  // 墙壁 (上半)
+  rect(0, 0, W, 90, '#5c4428');
+  // 墙线
+  rect(0, 90, W, PIXEL, '#3a2818');
+  // 地板纹理
+  for (let i = 0; i < 12; i++) {
+    for (let j = 0; j < 6; j++) {
+      if ((i + j) % 2 === 0) {
+        pRect(i * 70 + 5, j * 70 + 100, 60, 60, '#2e1a0a');
+      }
+    }
+  }
+  // 标题
+  drawText('🔥 老火锅店', 140, 28, '#ffcc00', 20);
+  drawText(`Lv.${G.level} ${G.isNight ? '🌙' : '☀️'} 日收入:${G.totalEarned}`, 130, 52, '#fff8e7', 12);
+}
+
+function drawHUD() {
+  // 顶部 HUD 背景
+  rect(0, 60, W, 30, 'rgba(0,0,0,0.7)');
+  // 金币
+  drawPixels(SPRITES.coin, 10, 64, 1);
+  drawText(` ${G.gold}`, 38, 82, '#ffcc00', 14);
+  // 钻石
+  drawPixels(SPRITES.diamond, 120, 64, 1);
+  drawText(` ${G.diamond}`, 148, 82, '#66ccff', 14);
+  // 顾客数
+  drawText(`👥 ${customers.filter(c => c.state !== 'left').length}`, 230, 82, '#fff', 13);
+  // 座位
+  drawText(`🪑 ${customers.filter(c => c.state === 'seated' || c.state === 'eating').length}/${G.seats}`, 310, 82, '#fff', 13);
+}
+
+function drawWaitingArea() {
+  rect(4, 96, W-8, 52, 'rgba(0,0,0,0.3)');
+  drawText('等候区', 10, 110, '#888', 11);
+  const waiting = customers.filter(c => c.state === 'waiting');
+  waiting.forEach((c, i) => {
+    const x = 10 + i * 46;
+    const y = 116;
+    if (x + 40 > W) return;
+    // 顾客头像
+    drawPixels(SPRITES.customer(c.avatarIdx), x, y, 1);
+    // 类型标签
+    drawText(c.label, x, y + 30, C.YELLOW, 9);
+    // 耐心条
+    const pct = Math.max(0, c.patience / c.maxPatience);
+    const barColor = pct > 0.5 ? C.GREEN : pct > 0.25 ? C.YELLOW : C.RED;
+    drawBorder(x, y + 38, 40, 6, C.DARK_GRAY, C.DARK_GRAY);
+    rect(x + 2, y + 40, 36 * pct, 3, barColor);
+  });
+}
+
+function drawTables() {
+  const seated = customers.filter(c => c.state === 'seated' || c.state === 'eating');
+  const tableW = 120, tableH = 80;
+  const maxCols = Math.floor((W - 20) / (tableW + 10));
+  const cols = Math.min(maxCols, Math.ceil(G.seats / 2));
+
+  seated.forEach((c, idx) => {
+    const col = idx % cols;
+    const row = Math.floor(idx / cols);
+    const x = 10 + col * (tableW + 10);
+    const y = 165 + row * (tableH + 10);
+
+    // 桌子
+    drawBorder(x, y, tableW, tableH, C.BROWN, C.CREAM);
+    // 火锅
+    drawPixels(SPRITES.hotpot, x + tableW/2 - 16, y + 8, 0.8);
+
+    // 食物
+    if (c.orderId) {
+      const item = MENU.find(m => m.id === c.orderId);
+      drawText(item ? item.emoji : '🍲', x + tableW/2 - 8, y + 35, '#fff', 16);
+      drawText(item ? `${item.name}` : '等待中', x + 8, y + 58, C.DARK_GRAY, 9);
+    }
+
+    // 满意度
+    const satColor = c.satisfaction > 70 ? C.GREEN : c.satisfaction > 40 ? C.YELLOW : C.RED;
+    drawText(`♥${Math.floor(c.satisfaction)}`, x + tableW - 30, y + 58, satColor, 9);
+
+    // 吃完了有结账按钮
+    if (c.state === 'eating' && c.patience < c.maxPatience * 0.3) {
+      drawBorder(x + tableW/2 - 20, y + tableH - 18, 40, 16, C.RED, C.DARK_RED);
+      drawText('结账', x + tableW/2 - 12, y + tableH - 6, C.WHITE, 10);
+    }
+  });
+}
+
+function drawKitchen() {
+  // 厨房区域标题
+  rect(4, 430, W-8, 20, 'rgba(0,0,0,0.4)');
+  drawText('🔥 厨房', 10, 444, '#ff8844', 12);
+
+  const stoveW = 90, stoveH = 72;
+  STOVES.forEach((stove, i) => {
+    const x = 10 + i * (stoveW + 10);
+    const y = 455;
+    if (x + stoveW > W) return;
+
+    const isLocked = (i >= 2 && G.level < 3) || (i >= 3 && G.level < 5);
+    const color = isLocked ? C.DARK_GRAY : stove.busy ? C.ORANGE : C.GRAY;
+    const bgColor = isLocked ? '#222' : stove.busy ? '#553311' : '#333';
+
+    drawBorder(x, y, stoveW, stoveH, color, bgColor);
+
+    if (isLocked) {
+      drawText('🔒', x + stoveW/2 - 8, y + 30, '#666', 16);
+      drawText(`Lv${i===2?3:5}解锁`, x + 8, y + 55, C.GRAY, 9);
+    } else {
+      drawText(stove.name, x + 8, y + 14, C.WHITE, 10);
+
+      if (stove.busy) {
+        // 烹饪进度条
+        const pct = stove.progress;
+        drawBorder(x + 8, y + 24, stoveW - 16, 8, C.DARK_GRAY, C.DARK_GRAY);
+        const barColor = pct > 0.85 ? C.YELLOW : pct > 0.6 ? C.ORANGE : C.RED;
+        rect(x + 10, y + 26, (stoveW - 20) * Math.min(1, pct / 1.2), 5, barColor);
+        drawText(`⌛${Math.floor((1 - pct/1.2) * stove.cookTime)}s`, x + 20, y + 46, C.WHITE, 9);
+        if (pct >= 1.2) {
+          drawText('🔥过头了!', x + 10, y + 60, C.RED, 10);
+        } else if (pct >= 0.85) {
+          drawText('✨完美!', x + 20, y + 60, C.YELLOW, 10);
+        } else if (pct >= 0.6) {
+          drawText('✅ 可出锅', x + 12, y + 60, C.GREEN, 10);
+        }
+      } else {
+        drawText('空闲', x + 24, y + 36, C.GRAY, 12);
+        if (!stove.busy && customers.some(c => c.state === 'seated' && c.orderId)) {
+          drawText('点击烹饪', x + 12, y + 56, C.GREEN, 9);
+        }
+      }
+    }
+  });
+}
+
+function drawStaffArea() {
+  rect(4, 540, W-8, 55, 'rgba(0,0,0,0.3)');
+  drawText('👨‍🍳 员工', 10, 554, '#aaa', 11);
+  staffs.forEach((s, i) => {
+    const x = 10 + i * 110;
+    if (x + 100 > W) return;
+    drawText(`${s.label} ${s.name}`, x, 572, C.WHITE, 11);
+    drawText(`Lv.${s.level} 效率×${s.efficiency}`, x, 588, C.LIGHT_GRAY, 10);
+  });
+}
+
+function drawBottomMenu() {
+  const btns = [
+    { label: '📈 升级', x: 10, action: 'upgrade' },
+    { label: '👤 招聘', x: 110, action: 'hire' },
+    { label: '🛒 装修', x: 210, action: 'decor' },
+    { label: '⏭ 加速', x: 310, action: 'speed' },
+  ];
+  btns.forEach(btn => {
+    if (btn.x + 90 > W) return;
+    drawBorder(btn.x, 600, 90, 28, C.BROWN, '#4a2a10');
+    drawText(btn.label, btn.x + 8, 618, C.WHITE, 12);
+  });
+  // 统计
+  drawText(`共接待 ${G.totalServed} 位顾客 · 收入 ¥${G.totalEarned}`, 10, 648, C.GRAY, 10);
+  // 版本
+  drawText('🔥 Hotpot Demo v0.1', 10, 680, C.DARK_GRAY, 9);
+}
+
+// ==================== 交互系统 ====================
+
+let clickHandler = null;
+let upgradePanel = null;
+
+function handleClick(mx, my) {
+  // 如果升级面板开着
+  if (upgradePanel) {
+    handleUpgradeClick(mx, my);
+    return;
+  }
+
+  // 检查点击顾客（等候区）
+  const waiting = customers.filter(c => c.state === 'waiting');
+  waiting.forEach((c, i) => {
+    const x = 10 + i * 46;
+    const y = 116;
+    if (mx >= x && mx <= x + 40 && my >= y && my <= y + 45) {
+      if (trySeatCustomer(c)) {
+        log(`✅ ${c.label} 入座了！`);
+      } else {
+        log('❌ 没有空位了');
+      }
+    }
+  });
+
+  // 检查点击灶台
+  STOVES.forEach((stove, i) => {
+    const x = 10 + i * 100;
+    const y = 455;
+    if (mx >= x && mx <= x + 90 && my >= y && my <= y + 72) {
+      const isLocked = (i >= 2 && G.level < 3) || (i >= 3 && G.level < 5);
+      if (isLocked) {
+        log(`🔒 需要 Lv.${i===2?3:5} 解锁`);
+        return;
+      }
+      if (!stove.busy) {
+        // 找一位坐着的顾客的订单来烹饪
+        const seated = customers.find(c => (c.state === 'seated') && c.orderId);
+        if (seated) {
+          const item = MENU.find(m => m.id === seated.orderId);
+          stove.busy = true;
+          stove.progress = 0;
+          stove.recipeId = seated.orderId;
+          stove.cookTime = item ? item.cookTime : 5;
+          // 顾客改为用餐中
+          seated.state = 'eating';
+          log(`🍳 开始烹饪 ${item ? item.name : '菜品'}！`);
+        } else {
+          log('❌ 没有待烹饪的订单');
+        }
+      } else if (stove.busy && stove.progress >= 0.6 && stove.progress < 1.2) {
+        // 完成烹饪！上菜
+        stove.busy = false;
+        stove.progress = 0;
+        // 找正在吃的顾客完成用餐
+        const eater = customers.find(c => c.state === 'eating' && c.orderId === stove.recipeId);
+        if (eater) {
+          const item = MENU.find(m => m.id === stove.recipeId);
+          const bonus = stove.progress >= 0.85 ? 1.5 : 1.0;
+          const income = Math.floor((item ? item.price : 50) * bonus * eater.tipRate * (eater.satisfaction/100 + 0.5));
+          addGold(income);
+          G.totalServed++;
+          eater.state = 'done';
+          log(`💰 上菜完成！ +¥${income} ${bonus > 1 ? '✨ 完美烹饪!' : ''}`);
+          // 离开
+          setTimeout(() => { eater.state = 'left'; }, 1500);
+        }
+        stove.recipeId = null;
+      } else if (stove.busy && stove.progress >= 1.2) {
+        // 烧糊了
+        stove.busy = false;
+        stove.progress = 0;
+        stove.recipeId = null;
+        log('😅 烧糊了... 重新开始吧');
+      }
+    }
+  });
+
+  // 底部菜单
+  const btns = [
+    { label: '📈 升级', x: 10, action: 'upgrade' },
+    { label: '👤 招聘', x: 110, action: 'hire' },
+    { label: '🛒 装修', x: 210, action: 'decor' },
+    { label: '⏭ 加速', x: 310, action: 'speed' },
+  ];
+  btns.forEach(btn => {
+    if (btn.x + 90 > W) return;
+    if (mx >= btn.x && mx <= btn.x + 90 && my >= 600 && my <= 628) {
+      if (btn.action === 'upgrade') {
+        upgradePanel = true;
+      } else if (btn.action === 'hire') {
+        if (G.gold >= 300) {
+          addStaff(`员工${staffId+1}`, ['waiter','chef','cleaner'][staffId % 3]);
+          G.gold -= 300;
+          log('👤 新员工入职！');
+        } else {
+          log('❌ 金币不足 (需要300)');
+        }
+      } else if (btn.action === 'decor') {
+        if (G.gold >= 500) {
+          G.gold -= 500;
+          G.popularity += 5;
+          G.seats += 1;
+          log('🛋️ 装修升级！座位+1，人气+5');
+        } else {
+          log('❌ 金币不足 (需要500)');
+        }
+      } else if (btn.action === 'speed') {
+        // 加速所有灶台
+        STOVES.forEach(s => {
+          if (s.busy) s.progress += 3;
+        });
+        log('⏩ 加速烹饪！');
+      }
+    }
+  });
+}
+
+function handleUpgradeClick(mx, my) {
+  if (mx >= 10 && mx <= 130 && my >= 80 && my <= 110) {
+    upgradePanel = null;
+    return;
+  }
+
+  // 简单的升级选项
+  const options = [
+    { label: '培训员工 ¥200', cost: 200, effect: () => {
+      if (staffs.length > 0) {
+        const s = staffs[0];
+        if (s.level < 10) { s.level++; s.efficiency = 1 + (s.level-1)*0.1; return true; }
+      } return false;
+    }},
+    { label: '新增座位 ¥800', cost: 800, effect: () => { G.seats++; return true; }},
+    { label: '提升人气 ¥600', cost: 600, effect: () => { G.popularity += 10; return true; }},
+    { label: '加速服务 ¥400', cost: 400, effect: () => { return true; }},
+  ];
+  options.forEach((opt, i) => {
+    const y = 120 + i * 35;
+    if (my >= y && my <= y + 30 && mx >= 20 && mx <= 200) {
+      if (G.gold >= opt.cost) {
+        G.gold -= opt.cost;
+        if (opt.effect()) log(`✅ ${opt.label}`);
+      } else {
+        log('❌ 金币不足');
+      }
+      upgradePanel = null;
+    }
+  });
+}
+
+// ==================== 游戏循环 ====================
+
+let lastTime = 0;
+
+function gameLoop(time) {
+  const dt = Math.min(0.1, (time - lastTime) / 1000);
+  lastTime = time;
+
+  // 更新逻辑
+  update(dt);
+  // 渲染
+  render();
+
+  requestAnimationFrame(gameLoop);
+}
+
+function update(dt) {
+  // 生成顾客
+  spawnTimer += dt;
+  const interval = Math.max(3, 8 - G.popularity * 0.05);
+  const activeCount = customers.filter(c => c.state !== 'left').length;
+  if (spawnTimer >= interval && activeCount < 20) {
+    spawnTimer = 0;
+    customers.push(createCustomer());
+  }
+
+  // 更新顾客耐心
+  customers.forEach(c => {
+    if (c.state === 'waiting' || c.state === 'seated') {
+      c.patience -= dt;
+      c.satisfaction = Math.max(0, Math.min(100, c.satisfaction - dt * 0.5));
+      if (c.patience <= 0 && c.state === 'waiting') {
+        c.state = 'left';
+      }
+    }
+    if (c.state === 'eating') {
+      c.patience -= dt * 0.5;
+      // 吃到一定程度触发自动结账
+      if (c.patience <= 0) {
+        // 找灶台是否有这个菜
+        const cooker = STOVES.find(s => s.busy && s.recipeId === c.orderId);
+        if (!cooker || cooker.progress >= 0.6) {
+          // 可以直接结账
+          const item = MENU.find(m => m.id === c.orderId);
+          const income = Math.floor((item ? item.price : 50) * c.tipRate * (c.satisfaction/100 + 0.3));
+          addGold(income);
+          G.totalServed++;
+          c.state = 'done';
+          setTimeout(() => { c.state = 'left'; }, 1000);
+        }
+      }
+    }
+  });
+
+  // 清理离开的顾客
+  customers = customers.filter(c => c.state !== 'left' || Date.now() % 100 < 50);
+
+  // 更新灶台
+  STOVES.forEach(s => {
+    if (s.busy) {
+      s.progress += dt;
+    }
+  });
+
+  // 日循环
+  G.dayTimer += dt;
+  if (G.dayTimer >= 120) {
+    G.dayTimer = 0;
+    G.isNight = !G.isNight;
+    G.dayCustomers = 0;
+  }
+
+  // 自动清理 done 状态的顾客
+  const toRemove = customers.filter(c => c.state === 'done');
+  toRemove.forEach(c => {
+    setTimeout(() => { c.state = 'left'; }, 500);
+  });
+}
+
+function render() {
+  ctx.clearRect(0, 0, W, H);
+
+  drawBackground();
+  drawWaitingArea();
+  drawTables();
+  drawHUD();
+  drawKitchen();
+  drawStaffArea();
+  drawBottomMenu();
+
+  // 升级面板覆盖
+  if (upgradePanel) {
+    rect(0, 0, W, H, 'rgba(0,0,0,0.6)');
+    drawBorder(20, 60, 200, 200, C.GOLD, C.DARK_BROWN);
+    drawText('📈 升级', 30, 82, C.YELLOW, 16);
+    drawText('[关闭]', 120, 82, C.RED, 12);
+
+    const options = [
+      { label: '👨‍🍳 培训员工  ¥200', cost: 200 },
+      { label: '🪑 新增座位  ¥800', cost: 800 },
+      { label: '⭐ 提升人气  ¥600', cost: 600 },
+      { label: '⏩ 加速服务  ¥400', cost: 400 },
+    ];
+    options.forEach((opt, i) => {
+      const y = 120 + i * 35;
+      const canAfford = G.gold >= opt.cost;
+      drawBorder(25, y, 170, 28, canAfford ? C.GREEN : C.GRAY, canAfford ? '#2a4a2a' : '#333');
+      drawText(`${opt.label}`, 32, y + 20, canAfford ? C.WHITE : C.GRAY, 11);
+    });
+  }
+}
+
+// ==================== 事件绑定 ====================
+
+canvas.addEventListener('click', (e) => {
+  const rect2 = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect2.width;
+  const scaleY = canvas.height / rect2.height;
+  const mx = (e.clientX - rect2.left) * scaleX;
+  const my = (e.clientY - rect2.top) * scaleY;
+  handleClick(mx, my);
+});
+
+canvas.addEventListener('touchstart', (e) => {
+  e.preventDefault();
+  const touch = e.touches[0];
+  const rect2 = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect2.width;
+  const scaleY = canvas.height / rect2.height;
+  const mx = (touch.clientX - rect2.left) * scaleX;
+  const my = (touch.clientY - rect2.top) * scaleY;
+  handleClick(mx, my);
+});
+
+// ==================== 启动 ====================
+log('🔥 火锅店开张！点击顾客安排入座');
+requestAnimationFrame(gameLoop);
+</script>
+</body>
+</html>
