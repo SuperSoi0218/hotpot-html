@@ -32,12 +32,12 @@ const STRIP={top:0,mid:SH,bot:SH*2,road:SH*3}; // y-start of each strip
 
 // Tables (world coords: cx=center x, y=top y)
 const TABLES=[
-  {id:1,cx:120, y:STRIP.top+70,  w:74,h:54, state:'clean',cust:null},
-  {id:2,cx:280, y:STRIP.top+70,  w:74,h:54, state:'clean',cust:null},
-  {id:3,cx:480, y:STRIP.top+70,  w:74,h:54, state:'clean',cust:null},
-  {id:4,cx:170, y:STRIP.mid+85,  w:74,h:54, state:'clean',cust:null},
-  {id:5,cx:340, y:STRIP.mid+85,  w:74,h:54, state:'clean',cust:null},
-  {id:6,cx:540, y:STRIP.mid+85,  w:74,h:54, state:'clean',cust:null},
+  {id:1,cx:120, y:STRIP.top+70,  w:74,h:54, state:'clean',cust:null,max:2,label:'2人桌'},
+  {id:2,cx:280, y:STRIP.top+70,  w:74,h:54, state:'clean',cust:null,max:2,label:'2人桌'},
+  {id:3,cx:480, y:STRIP.top+70,  w:74,h:54, state:'clean',cust:null,max:4,label:'4人桌'},
+  {id:4,cx:170, y:STRIP.mid+85,  w:74,h:54, state:'clean',cust:null,max:2,label:'2人桌'},
+  {id:5,cx:340, y:STRIP.mid+85,  w:74,h:54, state:'clean',cust:null,max:4,label:'4人桌'},
+  {id:6,cx:540, y:STRIP.mid+85,  w:74,h:54, state:'clean',cust:null,max:2,label:'2人桌'},
 ];
 const STOVES=[
   {id:1,x:460, y:STRIP.bot+30, w:64,h:48, busy:false,progress:0,maxP:5,orderId:null,_tasked:false},
@@ -404,30 +404,63 @@ function doStaffTask(staff){
 }
 
 // ============================================================
-// SPAWN
+// SPAWN + QUEUE
 // ============================================================
 const ROAD_Y=STRIP.road+68;
+const QUEUE=[]; // {size,patience,elapsed}
 
-function spawnCust(){
-  const fr=TABLES.find(t=>t.state==='clean');
-  if(!fr)return;
+function pickGroupSize(){
+  // 按等级决定团队大小权重: [1人,2人,3人,4人]
+  const tier=G.level<=3?0:G.level<=6?1:G.level<=9?2:3;
+  const w=[[40,35,15,10],[30,30,25,15],[20,25,30,25],[15,20,30,35]][tier]||[40,35,15,10];
+  const total=w.reduce((a,b)=>a+b,0);
+  let r=Math.random()*total;
+  for(let i=0;i<4;i++){r-=w[i];if(r<=0)return i+1;}
+  return 1;
+}
+
+function trySeatGroup(size){
+  // 找能容纳的干净桌子（最小优先）
+  let best=null;
+  for(const t of TABLES){
+    if(t.state==='clean'&&t.max>=size){
+      if(!best||t.max<best.max)best=t;
+    }
+  }
+  if(!best)return null;
+  // spawn single group leader entity
   const fromLeft=Math.random()>0.5;
   const sx=fromLeft?CAM.x-30:CAM.x+W+30;
   const availItems=MITEMS.filter(it=>!it.need||G._researched.includes(it.need));
   const item=availItems[Math.floor(Math.random()*availItems.length)];
   const type=pickCustType();
   const e=ENT.create('cust',sx,ROAD_Y,{
-    st:'walk',tid:fr.id,spd:(40+Math.random()*15)*type.spdMod,
+    st:'walk',tid:best.id,spd:(40+Math.random()*15)*type.spdMod,
     pat:type.patBase+Math.random()*8-4,sat:100,want:item,custType:type,
+    groupSize:size,
   });
   e.maxPat=e.pat;
-  // wp0: walk to door_x at road level
-  // wp1: transition up through door
-  // wp2: walk to table
-  const tcx=fr.cx;
-  e.wp=[{x:DOOR.x,y:ROAD_Y},{x:DOOR.x,y:DOOR.y+DOOR.h-4},{x:tcx,y:fr.y+fr.h-16}];
+  const tcx=best.cx;
+  e.wp=[{x:DOOR.x,y:ROAD_Y},{x:DOOR.x,y:DOOR.y+DOOR.h-4},{x:tcx,y:best.y+best.h-16}];
   e.wpi=0;e.tx=e.wp[0].x;e.ty=e.wp[0].y;e.dir=e.tx>e.x?1:-1;
-  fr.state='occupied';fr.cust=e;E.push(e);
+  best.state='occupied';best.cust=e;E.push(e);
+  return best;
+}
+
+function processQueue(){
+  for(let i=QUEUE.length-1;i>=0;i--){
+    const q=QUEUE[i];
+    if(trySeatGroup(q.size))QUEUE.splice(i,1);
+  }
+}
+
+function spawnCust(){
+  const size=pickGroupSize();
+  const seated=trySeatGroup(size);
+  if(!seated){
+    // 没位子 → 加入排队
+    if(QUEUE.length<6)QUEUE.push({size,patience:30+(G.level*2),elapsed:0});
+  }
 }
 
 function spawnPed(){
@@ -674,7 +707,8 @@ function checkout(cu){
   const bp=cu.want?.p??50;
   const sm=cu.custType?cu.custType.spendMult:1.0;
   const sb=1+(cu.sat-50)/100;
-  const inc=Math.max(1,Math.floor(bp*sm*sb*(G._priceMult||1)));
+  const grp=cu.groupSize||1;
+  const inc=Math.max(1,Math.floor(bp*sm*sb*(G._priceMult||1)*grp));
   G.gold+=inc;G.earned+=inc;G.served++;G.exp+=Math.floor(inc*0.1);
   checkRankUp();
   // 清理可能存在的结账任务（防止钱女士重复走过来）
@@ -829,6 +863,18 @@ function upd(dt){
   const maxCust=Math.min(8,4+Math.floor(G.level/2));
   st+=dt;if(st>spawnInterval&&E.filter(e=>e.type==='cust'&&e.st!=='left').length<maxCust
     &&TABLES.some(t=>t.state==='clean')){st=0;spawnCust();}
+  // Queue: tick patience + try seat
+  for(let i=QUEUE.length-1;i>=0;i--){
+    const q=QUEUE[i];
+    q.elapsed+=dt;
+    if(q.elapsed>q.patience){
+      tip(`👋 ${q.size}人顾客等不及走了`);
+      QUEUE.splice(i,1);
+    }
+  }
+  // Try seat queued groups every 2s
+  G._qTimer=(G._qTimer||0)+dt;
+  if(G._qTimer>2){G._qTimer=0;processQueue();}
   pt+=dt;if(pt>4&&E.filter(e=>e.type==='ped'&&e.st!=='left').length<2){pt=0;spawnPed();}
   E.forEach(e=>ENT.upd(e,dt));
   // 过滤已离开+异常实体（防止 NaN 堆积）
@@ -1069,6 +1115,8 @@ function TXTAB(cx2,tables){
         pr(d,t.y+3,4,3,C.WHITE);
         pr(d,t.y+t.h-8,4,3,C.WHITE);
       }
+      // 桌位容量标签（空桌时显示）
+      if(t.state==='clean')tx(t.label,tx+4,t.y+t.h-16,C.GOLD,8);
       // Hotpot on table
       dr(SHP,tx+t.w/2-16,t.y+4,0.85);
       // Steam from hotpot when occupied
@@ -1328,34 +1376,47 @@ function drawRoad(cx2){
   r(0,rdY,W,2,C.GRAY);
   r(0,rdY+SH-64,W,2,C.GRAY);
 
-  // Car — 更帅的车
-  const co=Math.floor(G.gt*35)%(WW+100)-50;
-  if(co>-60&&co<WW){
-    const cx3=co-cx2,cy=rdY+8;
-    // Car body
-    r(cx3,cy,48,16,C.RED);
-    r(cx3+4,cy-6,40,10,C.RED);
-    // Roof
-    r(cx3+10,cy-8,30,4,C.DRED);
-    // Windows
-    r(cx3+10,cy-6,12,8,C.LGRAY);
-    r(cx3+28,cy-6,12,8,C.LGRAY);
-    // Wheel wells
-    r(cx3+4,cy+12,10,6,C.DGRAY);
-    r(cx3+34,cy+12,10,6,C.DGRAY);
-    // Wheels
-    r(cx3+6,cy+14,6,6,C.BLACK);
-    r(cx3+36,cy+14,6,6,C.BLACK);
-    // Headlight
-    r(cx3+44,cy+2,4,6,C.YELLOW);
-    // Window divider
-    r(cx3+22,cy-6,2,8,C.DGRAY);
-    // Rear light
-    r(cx3,cy+2,3,4,C.ORANGE);
-    // Shadow under car
-    cx.globalAlpha=0.1;
-    r(cx3-2,cy+20,54,4,C.BLACK);
+  // 像素小汽车（参考初代宝可梦风格）
+  const co=Math.floor(G.gt*30)%(WW+120)-60;
+  if(co>-80&&co<WW){
+    const cx3=co-cx2,cy=rdY+4;
+    // Shadow
+    cx.globalAlpha=0.08;
+    pr(cx3,cy+28,72,4,C.BLACK);
     cx.globalAlpha=1;
+    // Body (pixel-perfect)
+    pr(cx3,cy+4,72,20,C.RED);
+    pr(cx3,cy,72,6,C.DRED);          // body top highlight
+    // Cabin/roof
+    pr(cx3+12,cy-8,48,14,C.RED);
+    pr(cx3+16,cy-12,40,6,C.DRED);
+    // Windshield
+    pr(cx3+16,cy-8,16,10,C.LGRAY);
+    pr(cx3+40,cy-8,16,10,C.LGRAY);
+    // Roof stripe
+    pr(cx3+32,cy-8,2,10,C.DGRAY);
+    // Windows
+    pr(cx3+18,cy-6,12,6,C.WHITE);
+    pr(cx3+42,cy-6,12,6,C.WHITE);
+    // Wheel arches
+    pr(cx3+4,cy+20,16,6,C.DGRAY);
+    pr(cx3+52,cy+20,16,6,C.DGRAY);
+    // Wheels
+    pr(cx3+6,cy+22,12,8,C.BLACK);
+    pr(cx3+54,cy+22,12,8,C.BLACK);
+    // Hubcaps
+    pr(cx3+8,cy+24,8,4,C.LGRAY);
+    pr(cx3+56,cy+24,8,4,C.LGRAY);
+    // Headlights
+    pr(cx3+68,cy+4,4,5,C.YELLOW);
+    pr(cx3+68,cy+12,4,5,C.YELLOW);
+    // Tail lights
+    pr(cx3,cy+4,4,5,C.ORANGE);
+    pr(cx3,cy+12,4,5,C.ORANGE);
+    // Bumper
+    pr(cx3,cy+18,72,3,C.DGRAY);
+    // Bumper detail
+    pr(cx3+8,cy+19,56,1,C.GRAY);
   }
 }
 
@@ -1376,6 +1437,18 @@ function drawEnts(cx2){
             const col=ba[r2]?.[c2];
             if(col)cx.fillRect((ex+c2*PU*sc)|0,(sy+r2*PU*sc)|0,PU*sc,PU*sc);
           }
+        // 多人组：显示其他组员（堆叠在后面的位置）
+        if(e.groupSize>1){
+          const gs=sp[0]; // same sprite
+          for(let g=1;g<Math.min(e.groupSize,4);g++){
+            const gx=ex+g*8-6,gy=ey-ch+16+g*4;
+            for(let r2=0;r2<6;r2++)
+              for(let c2=0;c2<8;c2++){
+                const col=gs[r2]?.[c2];
+                if(col)cx.fillRect((gx+c2*PU*sc)|0,(gy+r2*PU*sc)|0,PU*sc,PU*sc);
+              }
+          }
+        }
         if(e.st==='seat'&&!e.order&&e.want){
           tx(e.want.n,ex+2,sy-8,C.YELLOW,12);
           tx('👆 接单',ex+12,sy+16,C.WHITE,10);
@@ -1427,6 +1500,8 @@ function drawEnts(cx2){
       }else if(e.st==='walk'||e.st==='wout'||e.st==='to_door'){
         const f=sp[e.f],by=Math.floor(Math.sin(G.gt*10+e.id||0)*1.5);
         dr(f,ex,ey-ch+by,sc);
+        // 团队人数标签
+        if(e.groupSize&&e.groupSize>1)tx(`${e.groupSize}人`,ex+6,ey-ch+by-8,C.WHITE,8);
         if(CAM.x>0||e.x>CAM.x+60){
           // Pedestrian heading indicator
           cx.globalAlpha=0.3;
@@ -1520,7 +1595,8 @@ function drawHUD(cx2){
     }
     if(nextR)tx(`→${nextR.name}`,116,38,C.YELLOW,9);
   }
-  // 低耐心顾客警告
+  // 排队人数 + 低耐心警告
+  if(QUEUE.length>0)tx(`🚶${QUEUE.length}`,310,16,C.WHITE,10);
   const impat=E.filter(e=>e.type==='cust'&&e.st==='seat'&&e.pat>0&&e.pat/e.maxPat<0.3);
   if(impat.length>0){
     const fl=Math.sin(G.gt*5)>0;
