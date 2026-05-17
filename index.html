@@ -176,7 +176,7 @@ const ENT={
       e.wpi++;
       if(e.wpi>=e.wp.length){
         if(e.type==='cust'){
-          if(e.st==='walk'){e.st='seat';tip('👤 顾客入座了！点击点单');}
+          if(e.st==='walk'){e.st='seat';tip('👤 顾客入座了！点击接单');}
           else if(e.st==='wout'){e.st='left';
             const tb=TABLES.find(t=>t.id===e.tid);
             if(tb){tb.state='dirty';tb.cust=null;}
@@ -201,9 +201,10 @@ function spawnCust(){
   if(!fr)return;
   const fromLeft=Math.random()>0.5;
   const sx=fromLeft?CAM.x-30:CAM.x+W+30;
+  const item=MITEMS[Math.floor(Math.random()*MITEMS.length)];
   const e=ENT.create('cust',sx,ROAD_Y,{
     st:'walk',tid:fr.id,spd:45+Math.random()*20,va:Math.floor(Math.random()*8),
-    pat:30+Math.random()*10,sat:100,
+    pat:30+Math.random()*10,sat:100,want:item,
   });
   // wp0: walk to door_x at road level
   // wp1: transition up through door
@@ -227,70 +228,27 @@ function spawnPed(){
 // ============================================================
 // COOKING
 // ============================================================
-function startCook(st){
-  if(st.busy||orderQ.length===0)return;
-  const o=orderQ.find(x=>!x.as);
-  if(!o){tip('⏳ 没有待烹饪的订单');return;}
-  o.as=true;o.sid=st.id;st.busy=true;st.progress=0;
-  st.maxP=4+Math.random()*2;st.orderId=o.id;
-  tip(`🍳 烹饪 ${o.dn||'菜品'}中...`);
-}
 function serveFood(st){
-  if(!st.busy)return;
-  const p=st.progress/st.maxP;
-  if(p<0.6){tip('⏳ 还没熟，再等等');return;}
-  if(p>1.15){
-    const _o=orderQ.find(x=>x.id===st.orderId);
-    if(_o){const _cu=E.find(e=>e.id===_o.cid);if(_cu)_cu.order=null;}
-    orderQ=orderQ.filter(x=>x.id!==st.orderId);
-    tip('💀 烧糊了... 重新点菜吧');
-    st.busy=false;st.progress=0;st.orderId=null;return;
-  }
+  if(!st.busy||st.progress<st.maxP){tip('⏳ 还在做...');return;}
   const o=orderQ.find(x=>x.id===st.orderId);
   if(!o){st.busy=false;return;}
   const cu=E.find(e=>e.id===o.cid);
   if(!cu||cu.st!=='seat'){st.busy=false;return;}
-  const bonus=p>=0.85?1.5:1.0;
-  cu.st='eat';cu.ep=0;cu._bonus=bonus;
+  cu.st='eat';cu.ep=0;
   st.busy=false;st.progress=0;st.orderId=null;
   orderQ=orderQ.filter(x=>x.id!==o.id);
-  tip(`🍲 上菜完成！${bonus>1?'✨完美烹饪！':''}`);
+  tip('🍲 上菜完成！');
   const fx=ENT.create('food_fx',st.x+32,st.y-14,{
     tx:cu.x,ty:cu.y-8,st:'flying',life:0.5,_a:0,
   });
   E.push(fx);
 }
 
-// ============================================================
-// MENU
-// ============================================================
 const MITEMS=[
   {id:1,n:'🥩 肥牛卷',p:68,ct:4},{id:2,n:'🦐 虾滑',p:88,ct:5},
   {id:3,n:'🥬 蔬菜拼盘',p:48,ct:3},{id:4,n:'🍄 菌菇拼盘',p:58,ct:4},
   {id:5,n:'🍜 手工面条',p:38,ct:3},{id:6,n:'🧆 手工肉丸',p:78,ct:5},
 ];
-let MS={a:false,cu:null};
-
-function openMenu(cu){MS.a=true;MS.cu=cu;}
-function closeMenu(){MS.a=false;MS.cu=null;}
-function placeOrder(cu,item){
-  if(!cu||!item)return;
-  const o={id:++oid,cid:cu.id,di:item.id,dn:item.n,pp:item.p,ct:item.ct,as:false,sid:null};
-  orderQ.push(o);cu.order=o;closeMenu();
-  tip(`📋 ${item.n} 已下单！去右边厨房烹饪`);
-}
-function checkout(cu){
-  if(cu.st!=='done')return;
-  const bp=cu.order?MITEMS.find(m=>m.id===cu.order.di)?.p||50:50;
-  const bonus=cu._bonus||1;const sb=1+(cu.sat-50)/100;
-  const inc=Math.floor(bp*bonus*sb);
-  G.gold+=inc;G.earned+=inc;G.served++;G.exp+=Math.floor(inc*0.1);
-  lvlUp();
-  cu.st='wout';cu.wp=[{x:DOOR.x,y:DOOR.y+DOOR.h-4},{x:DOOR.x,y:ROAD_Y},
-    {x:cu.x<DOOR.x?CAM.x-30:CAM.x+W+30,y:ROAD_Y}];
-  cu.wpi=0;cu.tx=cu.wp[0].x;cu.ty=cu.wp[0].y;cu.dir=cu.tx>cu.x?1:-1;
-  tip(`💰 +${inc}金币！${bonus>1?'✨完美加成！':''}`);
-}
 
 // ============================================================
 // LEVEL
@@ -300,6 +258,22 @@ function expN(l){return LV[l]||100+l*80}
 function lvlUp(){
   const n=expN(G.level);
   if(G.exp>=n&&G.level<20){G.exp-=n;G.level++;G.diamond=Math.floor(G.level/2);tip(`🎉 Lv.${G.level}!`)}
+}
+
+// ============================================================
+// CHECKOUT
+// ============================================================
+function checkout(cu){
+  if(cu.st!=='done')return;
+  const bp=cu.want?cu.want.p:50;
+  const sb=1+(cu.sat-50)/100;
+  const inc=Math.floor(bp*sb);
+  G.gold+=inc;G.earned+=inc;G.served++;G.exp+=Math.floor(inc*0.1);
+  lvlUp();
+  cu.st='wout';cu.wp=[{x:DOOR.x,y:DOOR.y+DOOR.h-4},{x:DOOR.x,y:ROAD_Y},
+    {x:cu.x<DOOR.x?CAM.x-30:CAM.x+W+30,y:ROAD_Y}];
+  cu.wpi=0;cu.tx=cu.wp[0].x;cu.ty=cu.wp[0].y;cu.dir=cu.tx>cu.x?1:-1;
+  tip(`💰 +${inc}金币！`);
 }
 
 // ============================================================
@@ -313,31 +287,33 @@ function wp(e){
 }
 
 function hc(mx,my){
-  const cx2=mx+CAM.x;
-  // Stoves
+  // Stoves — click to serve done food
   STOVES.forEach(st=>{
     const sx=st.x-CAM.x;
     if(mx>=sx&&mx<=sx+st.w&&my>=st.y&&my<=st.y+st.h){
-      if(st.busy)serveFood(st);else startCook(st);
+      if(st.busy)serveFood(st);
     }
   });
-  // Customers (seated/done)
+  // Tables — click dirty to start cleaning
+  TABLES.forEach(t=>{
+    const tx=t.cx-t.w/2-CAM.x;
+    if(mx>=tx&&mx<=tx+t.w&&my>=t.y&&my<=t.y+t.h){
+      if(t.state==='dirty'){t.state='cleaning';t._ct=0;tip('🧹 收拾桌子中...');}
+    }
+  });
+  // Customers — confirm order or checkout
   E.forEach(e=>{
     if(e.type!=='cust')return;
     const ex=e.x-CAM.x;
     if(Math.abs(mx-ex)<28&&Math.abs(my-(e.y-32))<30){
-      if(e.st==='seat'&&!e.order)openMenu(e);
-      else if(e.st==='done')checkout(e);
+      if(e.st==='seat'&&!e.order){
+        const item=e.want;
+        const o={id:++oid,cid:e.id,di:item.id,dn:item.n,pp:item.p,ct:item.ct,as:false,sid:null};
+        orderQ.push(o);e.order=o;
+        tip(`📋 ${item.n} 已接单！厨房自动做`);
+      }else if(e.st==='done')checkout(e);
     }
   });
-  // Menu buttons
-  if(MS.a){
-    MITEMS.forEach((item,i)=>{
-      const iy=300+i*34;
-      if(mx>=70&&mx<=350&&my>=iy&&my<=iy+30)placeOrder(MS.cu,item);
-    });
-    if(mx>=290&&mx<=340&&my>=250&&my<=274)closeMenu();
-  }
 }
 
 // Mouse
@@ -369,7 +345,7 @@ function tip(m){
   document.getElementById('tip').textContent=m;
   if(tipT)clearTimeout(tipT);
   tipT=setTimeout(()=>{
-    document.getElementById('tip').textContent='👆 路边来客人→进门→点菜→去右边厨房烹饪→上菜→结账';
+    document.getElementById('tip').textContent='👆 路边来客人→进门→接单→厨房自动做→上菜→结账→收拾';
     tipT=null;
   },4000);
 }
@@ -386,9 +362,18 @@ function upd(dt){
   pt+=dt;if(pt>4&&E.filter(e=>e.type==='ped'&&e.st!=='left').length<2){pt=0;spawnPed();}
   E.forEach(e=>ENT.upd(e,dt));
   E=E.filter(e=>e.st!=='left');
-  STOVES.forEach(s=>{if(s.busy)s.progress+=dt;});
+  // Auto-cook: idle stoves pick up unassigned orders automatically
+  STOVES.forEach(s=>{
+    if(!s.busy&&orderQ.some(o=>!o.as)){
+      const o=orderQ.find(o=>!o.as);
+      o.as=true;o.sid=s.id;s.busy=true;s.progress=0;
+      s.maxP=4+Math.random()*2;s.orderId=o.id;
+    }
+    if(s.busy)s.progress+=dt;
+  });
+  // Table cleaning progress
   TABLES.forEach(t=>{
-    if(t.state==='dirty'){t._ct=(t._ct||0)+dt;if(t._ct>3){t.state='clean';t._ct=0;}}
+    if(t.state==='cleaning'){t._ct=(t._ct||0)+dt;if(t._ct>3){t.state='clean';t._ct=0;}}
   });
 }
 
@@ -413,8 +398,6 @@ function draw(){
   // HUD
   drawHUD(cx2);
 
-  // Menu overlay
-  if(MS.a)drawMenu();
 }
 
 function drawStrip1(cx2){
@@ -445,14 +428,19 @@ function TXTAB(cx2,tables){
     const tx=t.cx-t.w/2-cx2;
     if(tx>-90&&tx<W+10){
       r(tx+2,t.y+2,t.w,t.h,'rgba(0,0,0,.1)');
-      const tc=t.state==='dirty'?'#a08060':t.state==='occupied'?'#eddcc8':C.CREAM;
+      const tc=t.state==='dirty'?'#a08060':t.state==='cleaning'?'#c8b090':t.state==='occupied'?'#eddcc8':C.CREAM;
       bx(tx,t.y,t.w,t.h,C.WOOD,tc,3);
       dr(SHP,tx+t.w/2-16,t.y+4,0.85);
-      if(t.state==='occupied'){
+      if(t.state==='occupied'&&t.cust&&!t.cust.order){
         const sy=t.y-2-(G.gt*2%10);
         cx.globalAlpha=0.12;pr(tx+t.w/2-4,sy,8,4,C.WHITE);cx.globalAlpha=1;
       }
-      if(t.state==='dirty')tx('💩',tx+t.w/2-8,t.y+t.h-18,C.WHITE,12);
+      if(t.state==='dirty')tx('🧹 点击收拾',tx+t.w/2-24,t.y+t.h-18,C.WHITE,11);
+      if(t.state==='cleaning'){
+        const cp=Math.min(1,(t._ct||0)/3);
+        r(tx+4,t.y+t.h-6,(t.w-8)*cp,3,C.GREEN);
+        tx('🧹 收拾中...',tx+t.w/2-30,t.y+t.h-18,C.LGRAY,10);
+      }
     }
   });
 }
@@ -495,26 +483,30 @@ function drawStrip3(cx2){
       pr(sx+4,st.y+4,st.w-8,st.h-8,C.BLACK);
       pr(sx+12,st.y-4,st.w-24,5,C.GRAY);
       if(st.busy){
-        const fh=7+Math.sin(G.gt*18+st.id)*2;
-        for(let f=0;f<fh;f++){
-          const a=Math.sin(G.gt*20+st.id*3+f*3)>0?.8:.4;
-          cx.globalAlpha=a;
-          pr(sx+20-f*.5,st.y-10-f*3,6+f,3,C.ORANGE);
-          pr(sx+24-f*.3,st.y-8-f*3,3+f*.5,2,C.YELLOW);
-        }
-        cx.globalAlpha=1;
         const p=Math.min(1,st.progress/st.maxP);
+        const done=p>=1;
+        // Flame effect
+        if(!done){
+          const fh=5+Math.sin(G.gt*18+st.id)*2;
+          for(let f=0;f<fh;f++){
+            const a=Math.sin(G.gt*20+st.id*3+f*3)>0?.7:.3;
+            cx.globalAlpha=a;
+            pr(sx+20-f*.5,st.y-8-f*2,6+f,3,C.ORANGE);
+          }
+          cx.globalAlpha=1;
+        }
+        // Progress bar
         bx(sx+6,st.y-22,st.w-12,7,C.DBRN,C.BLACK,2);
-        const bc=p>0.85?C.YELLOW:p>0.6?C.ORANGE:C.RED;
+        const bc=done?C.YELLOW:C.ORANGE;
         r(sx+8,st.y-20,(st.w-16)*p,5,bc);
-        if(p>0.85&&p<1.15)tx('✨',sx+st.w-14,st.y-14,C.YELLOW,10);
-        else if(p>=1.15)tx('💀',sx+st.w-14,st.y-14,C.RED,10);
+        if(done)tx('🍲 点击上菜',sx+10,st.y+st.h-8,C.YELLOW,12);
+        else tx(`⏳${Math.floor(p*100)}%`,sx+20,st.y+st.h-8,C.LGRAY,9);
       }else{
         const has=orderQ.some(x=>!x.as);
         if(has){
           const gp=0.2+Math.sin(G.gt*4+st.id)*0.15;
           cx.globalAlpha=gp;r(sx-2,st.y-2,st.w+4,st.h+4,C.ORANGE);cx.globalAlpha=1;
-          tx('🔥 点击',sx+8,st.y+st.h-8,C.YELLOW,10);
+          tx('🔥 待命',sx+18,st.y+st.h-8,C.YELLOW,10);
         }else{pr(sx+22,st.y-6,4,4,C.DRED);tx('空闲',sx+18,st.y+st.h-8,C.GRAY,9);}
       }
     }
@@ -566,17 +558,21 @@ function drawEnts(cx2){
       const k=e.type==='ped'?'ped':'c'+(e.va%8),sp=CS[k];
       if(!sp)return;
       // Sitting
-      if(e.st==='seat'||e.st==='done'){
+      if(e.st==='seat'||e.st==='eat'||e.st==='done'){
         const ba=sp[0],sy=ey-ch+16;
         for(let r2=0;r2<6;r2++)
           for(let c2=0;c2<8;c2++){
             const col=ba[r2]?.[c2];
             if(col)cx.fillRect((ex+c2*PU*sc)|0,(sy+r2*PU*sc)|0,PU*sc,PU*sc);
           }
-        if(e.st==='seat'&&!e.order){
-          const pu=0.25+Math.sin(G.gt*3)*0.12;
-          cx.globalAlpha=pu;cx.strokeStyle=C.YELLOW;cx.lineWidth=2;
-          cx.beginPath();cx.arc(ex+16*sc,sy-2,20,0,Math.PI*2);cx.stroke();cx.globalAlpha=1;
+        if(e.st==='seat'&&!e.order&&e.want){
+          tx(e.want.n,ex+2,sy-8,C.YELLOW,12);
+          tx('👆 接单',ex+12,sy+16,C.WHITE,10);
+        }
+        if(e.st==='eat'){
+          const ep=Math.min(1,e.ep);
+          r(ex+4,ey-4,40*ep,3,C.ORANGE);
+          tx('🍜',ex+42,ey-4,C.CREAM,10);
         }
         if(e.st==='done'){
           const bl=Math.sin(G.gt*4)>0;
@@ -627,18 +623,6 @@ function drawHUD(cx2){
   tx('═══ 马路 ═══',W/2-50,STRIP.road+SH-12,C.GRAY,9);
 }
 
-function drawMenu(){
-  r(0,0,W,H,'rgba(0,0,0,.6)');
-  bx(70,250,280,300,C.GOLD,C.DBRN);
-  tx('📋 请选择菜品',90,276,C.YELLOW,16);
-  bx(290,252,48,22,C.RED,C.DRED);tx('✕',306,270,C.WHITE,14);
-  MITEMS.forEach((item,i)=>{
-    const y=300+i*34;
-    bx(80,y,260,30,C.GREEN,'#2a4a2a');
-    tx(`${item.n}  ¥${item.p}`,90,y+20,C.WHITE,12);
-    tx(`⏱${item.ct}s`,300,y+20,C.LGRAY,10);
-  });
-}
 
 // ============================================================
 // LOOP
