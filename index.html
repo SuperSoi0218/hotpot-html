@@ -82,17 +82,23 @@ const dr=(d,x,y,sc)=>{
 // CHARACTERS
 // ============================================================
 function mkChar(hair,skin,shirt,pants,shoes){
-  const H=hair,S=skin,T=shirt,P=pants,F=shoes;
+  const H=hair,S=skin,T=shirt,P=pants,F=shoes,W=C.WHITE,B=C.BLACK,R=C.RED;
   const base=[];
-  base[0]=[_,_,H,H,H,H,_,_]; base[1]=[_,H,H,H,H,H,H,_];
-  base[2]=[_,H,S,S,S,S,H,_]; base[3]=[_,S,C.WHITE,C.BLACK,C.WHITE,S,S,_];
-  base[4]=[_,S,C.RED,S,S,C.RED,S,_]; base[5]=[_,S,S,_,_,S,S,_];
-  base[6]=[_,S,S,S,S,S,S,_]; base[7]=[_,S,T,T,T,T,S,_];
-  base[8]=[_,T,T,T,T,T,T,_]; base[9]=[_,P,P,P,P,P,P,_];
-  base[10]=[P,P,_,_,_,_,P,P]; base[11]=[_,_,F,F,F,F,_,_];
+  base[0]=[_,_,H,H,H,H,_,_];       // hair top
+  base[1]=[_,H,H,H,H,H,H,_];       // hair
+  base[2]=[_,H,S,S,S,S,H,_];       // face + hair sides
+  base[3]=[_,S,W,W,W,W,S,_];       // big eyes (4px white)
+  base[4]=[_,S,S,B,B,S,S,_];       // pupils (2px black)
+  base[5]=[_,S,S,S,R,S,S,_];       // mouth (1px red)
+  base[6]=[_,S,S,S,S,S,S,_];       // chin
+  base[7]=[_,S,T,T,T,T,S,_];       // collar
+  base[8]=[_,T,T,T,T,T,T,_];       // shirt
+  base[9]=[T,T,_,_,_,_,T,T];       // arms
+  base[10]=[_,P,P,P,P,P,P,_];      // pants
+  base[11]=[_,_,F,F,F,F,_,_];      // shoes
   const walk=base.map(r=>[...r]);
-  walk[9]=[_,P,P,P,P,_,_,_]; walk[10]=[P,P,_,_,_,P,P,_];
-  walk[11]=[_,_,F,F,_,F,F,_];
+  walk[10]=[_,P,_,_,_,P,_,_];      // legs striding
+  walk[11]=[_,_,F,F,_,F,F,_];      // feet apart
   return[base,walk];
 }
 const CS={};
@@ -102,14 +108,14 @@ CS.ped=mkChar(C.DGRAY,C.SKIN2,C.GRAY,C.DGRAY,C.BLACK);
 // SPRITES
 // ============================================================
 const SHP=[
-  [0,0,C.GRAY,C.GRAY,C.GRAY,C.GRAY,0,0],
-  [0,C.GRAY,C.DRED,C.RED,C.RED,C.DRED,C.GRAY,0],
-  [0,C.GRAY,C.RED,C.ORANGE,C.ORANGE,C.RED,C.GRAY,0],
-  [0,C.GRAY,C.RED,C.YELLOW,C.YELLOW,C.RED,C.GRAY,0],
-  [0,C.GRAY,C.RED,C.ORANGE,C.ORANGE,C.RED,C.GRAY,0],
-  [0,C.GRAY,C.DRED,C.RED,C.RED,C.DRED,C.GRAY,0],
-  [0,C.BROWN,C.BROWN,C.DBRN,C.DBRN,C.BROWN,C.BROWN,0],
-  [0,0,C.GRAY,C.GRAY,C.GRAY,C.GRAY,0,0],
+  [0,0,C.LGRAY,C.LGRAY,C.LGRAY,C.LGRAY,0,0],
+  [0,C.LGRAY,C.DRED,C.RED,C.RED,C.DRED,C.LGRAY,0],
+  [0,C.DGRAY,C.RED,C.ORANGE,C.ORANGE,C.RED,C.DGRAY,0],
+  [0,C.DGRAY,C.RED,C.YELLOW,C.YELLOW,C.RED,C.DGRAY,0],
+  [0,C.DGRAY,C.RED,C.ORANGE,C.ORANGE,C.RED,C.DGRAY,0],
+  [0,C.LGRAY,C.DRED,C.RED,C.RED,C.DRED,C.LGRAY,0],
+  [0,0,C.BROWN,C.BROWN,C.BROWN,C.BROWN,0,0],
+  [0,0,0,C.DBRN,C.DBRN,0,0,0],
 ];
 const SPL=[
   [0,0,C.WHITE,C.WHITE,0,0],[0,C.WHITE,C.LGRAY,C.LGRAY,C.WHITE,0],
@@ -913,88 +919,134 @@ function draw(){
 
 function drawStrip1(cx2){
   const s=STRIP.top,w=WW;
-  // Wall pattern
-  r(0,s,W,SH,C.WALL);
-  // Ceiling border
-  r(0,s,W,6,C.DBRN);
-  // Brick wall pattern
-  for(let wx=0;wx<w;wx+=24){
-    const ox=wx-cx2;if(ox>-24&&ox<W)pr(ox,s+8,20,14,C.DWALL);
+  // Wall color
+  r(0,s,W,SH,'#f5e6d0');
+  // Ceiling border with decorative pattern
+  r(0,s,W,4,C.DBRN);
+  r(0,s+4,W,3,'#c8a878');
+  // Wainscoting (lower wall panel)
+  r(0,s+120,W,SH-120,'#e8d4b8');
+  r(0,s+120,W,3,C.WOOD);
+  // Subtle wallpaper pattern (vertical stripes)
+  for(let wx=0;wx<w;wx+=20){
+    const ox=wx-cx2;
+    if(ox>-20&&ox<W)pr(ox,s+8,8,110,'rgba(200,180,160,.25)');
   }
-  // Hanging lanterns (3个)
+  // Hanging lanterns (3个) — 更精致
   [120,360,600].forEach(lx=>{
     const lox=lx-cx2;
-    if(lox>-20&&lox<W){
-      pr(lox-2,s-2,8,3,C.GOLD);
-      pr(lox-3,s+1,12,2,C.GOLD);
-      r(lox-1,s+3,6,8,C.RED);
-      r(lox-3,s+4,10,6,C.RED);
-      r(lox-1,s+11,6,2,C.GOLD);
-      r(lox,s+13,4,3,C.GOLD);
+    if(lox>-24&&lox<W){
+      // top string
+      pr(lox-1,s-2,2,4,C.GOLD);
+      // lantern body
+      r(lox-4,s+2,8,10,C.RED);
+      r(lox-5,s+3,10,8,C.RED);
+      // top/bottom gold trim
+      r(lox-2,s+1,4,2,C.GOLD);
+      r(lox-2,s+12,4,2,C.GOLD);
+      // tassel
+      r(lox-1,s+14,2,3,C.GOLD);
+      // glow
+      cx.globalAlpha=0.06;
+      r(lox-8,s-2,16,20,C.ORANGE);
+      cx.globalAlpha=1;
     }
   });
-  // Window decoration (between tables)
-  const wnx=240-cx2;
+  // Window with decorative frame
+  const wnx=220-cx2;
   if(wnx>-60&&wnx<W){
-    bx(wnx,s+10,48,56,C.DBRN,'#b0d0f0',3);
-    bx(wnx+4,s+14,40,48,C.DBRN,'#d0e8ff',2);
-    r(wnx+24,s+14,2,48,C.DBRN); r(wnx+4,s+38,40,2,C.DBRN);
+    bx(wnx,s+8,56,64,C.DBRN,'#c0d8f0',4);
+    bx(wnx+6,s+14,44,52,C.DBRN,'#d8ecff',2);
+    // window cross
+    r(wnx+28,s+14,2,52,C.DBRN);
+    r(wnx+6,s+40,44,2,C.DBRN);
+    // window light glow
+    cx.globalAlpha=0.08;
+    r(wnx+10,s+18,36,38,'#ffffcc');
+    cx.globalAlpha=1;
+    // curtains
+    pr(wnx+2,s+10,6,56,C.DRED);
+    pr(wnx+48,s+10,6,56,C.DRED);
+  }
+  // Decorative picture frame
+  const pfx=480-cx2;
+  if(pfx>-40&&pfx<W){
+    bx(pfx,s+12,28,24,C.DBRN);              // frame
+    r(pfx+3,s+15,22,18,'#cc4444');          // red bg
+    r(pfx+8,s+20,12,3,C.GOLD);             // decorative line
+    pr(pfx+13,s+24,4,3,C.WOOD);            // table
+    // vase with flower
+    pr(pfx+12,s+24,4,6,C.DGRAY);
+    pr(pfx+13,s+18,2,6,C.GREEN);
+    r(pfx+14,s+16,1,4,C.RED);
   }
   // Wall trim bottom
   r(0,s+SH-6,W,6,C.WOOD);
+  r(0,s+SH-4,W,2,'#d4a060');
   TXTAB(cx2,TABLES.filter(t=>t.y>=s&&t.y<s+SH));
 }
 
 function drawStrip2(cx2){
   const s=STRIP.mid,w=WW;
-  // Warm wall color
-  r(0,s,W,SH,'#f5e8d0');
+  // Wall color
+  r(0,s,W,SH,'#f0dcc4');
   // Ceiling border
-  r(0,s,W,6,C.DBRN);
-  // Wall stripe pattern
-  for(let wx=0;wx<w;wx+=32){
-    const ox=wx-cx2;if(ox>-32&&ox<W){
-      pr(ox,s+20,16,8,C.DFLOOR);
-      pr(ox+8,s+40,16,8,C.DFLOOR);
+  r(0,s,W,4,C.DBRN);
+  r(0,s+4,W,3,'#c8a878');
+  // Wainscoting
+  r(0,s+120,W,SH-120,'#e4ceb0');
+  r(0,s+120,W,3,C.WOOD);
+  // Wallpaper diamond pattern
+  for(let wx=0;wx<w;wx+=24){
+    const ox=wx-cx2;
+    if(ox>-24&&ox<W){
+      pr(ox+4,s+12,8,16,'rgba(180,160,140,.2)');
+      pr(ox,s+28,8,16,'rgba(180,160,140,.15)');
     }
   }
   // Hanging lanterns (2个)
   [280,560].forEach(lx=>{
     const lox=lx-cx2;
     if(lox>-20&&lox<W){
-      pr(lox-2,s-2,8,3,C.GOLD);
-      r(lox-1,s+3,6,8,C.RED);
-      r(lox-3,s+4,10,6,C.RED);
-      r(lox-1,s+11,6,2,C.GOLD);
-      r(lox,s+13,4,3,C.GOLD);
+      pr(lox-1,s-2,2,4,C.GOLD);
+      r(lox-4,s+2,8,10,C.RED);
+      r(lox-5,s+3,10,8,C.RED);
+      r(lox-2,s+1,4,2,C.GOLD);
+      r(lox-2,s+12,4,2,C.GOLD);
+      r(lox-1,s+14,2,3,C.GOLD);
+      cx.globalAlpha=0.05;
+      r(lox-8,s-2,16,20,C.ORANGE);
+      cx.globalAlpha=1;
     }
   });
-  // Wall decoration: hanging picture
-  const pxx=440-cx2;
-  if(pxx>-40&&pxx<W){
-    bx(pxx,s+12,28,24,C.DBRN);                 // frame
-    r(pxx+3,s+15,22,18,C.RED);                 // red bg
-    r(pxx+8,s+18,12,4,C.GOLD);                 // decorative line
-    pr(pxx+12,s+24,4,6,C.GREEN);               // plant
-    r(pxx+2,s+14,3,3,C.YELLOW);
+  // Hanging scroll art (Chinese painting)
+  const scx=440-cx2;
+  if(scx>-30&&scx<W){
+    bx(scx,s+8,22,32,C.DBRN);                // scroll
+    r(scx+2,s+10,18,28,'#fff8e8');           // paper
+    r(scx+6,s+14,10,6,C.GREEN);              // bamboo leaves
+    r(scx+8,s+12,4,10,C.DGREEN);
+    r(scx+10,s+18,6,4,C.GREEN);
+    // red seal stamp
+    pr(scx+14,s+32,4,4,C.RED);
+    // scroll top/bottom rods
+    r(scx-1,s+7,24,2,C.DBRN);
+    r(scx-1,s+39,24,2,C.DBRN);
   }
-  // Decorative shelf with vase (right side)
+  // Decorative shelf with vase
   const shelx=600-cx2;
   if(shelx>-40&&shelx<W){
-    r(shelx,s+30,32,3,C.WOOD);                  // shelf
-    pr(shelx+6,s+12,8,18,C.DGRAY);             // vase
-    pr(shelx+8,s+8,4,6,C.GREEN);               // plant leaves
-    pr(shelx+12,s+10,4,4,C.GREEN);             // more leaves
-    pr(shelx+4,s+16,12,2,C.GOLD);              // vase decoration
-  }
-  // Menu board near center-right
-  const menx=500-cx2;
-  if(menx>-30&&menx<W){
-    bx(menx,s+8,24,20,C.DBRN,'#fff8e0',2);
-    tx('🔥',menx+8,s+14,C.RED,10);
-    tx('推 荐',menx+4,s+24,C.DBRN,9);
+    r(shelx,s+30,32,3,C.WOOD);                // shelf
+    pr(shelx+6,s+14,8,16,C.DGRAY);           // vase
+    pr(shelx+8,s+10,4,6,C.GREEN);            // leaves
+    pr(shelx+12,s+12,4,4,C.GREEN);
+    pr(shelx+4,s+18,12,2,C.GOLD);            // vase decoration
+    // Second vase
+    pr(shelx+20,s+18,6,12,C.DRED);           // small red vase
+    pr(shelx+22,s+14,2,6,C.GREEN);           // leaves
   }
   r(0,s+SH-6,W,6,C.WOOD);
+  r(0,s+SH-4,W,2,'#d4a060');
   TXTAB(cx2,TABLES.filter(t=>t.y>=s&&t.y<s+SH));
 }
 
@@ -1002,23 +1054,49 @@ function TXTAB(cx2,tables){
   tables.forEach(t=>{
     const tx=t.cx-t.w/2-cx2;
     if(tx>-90&&tx<W+10){
-      r(tx+2,t.y+2,t.w,t.h,'rgba(0,0,0,.1)');
-      const tc=t.state==='dirty'?'#a08060':t.state==='cleaning'?'#c8b090':t.state==='occupied'?'#eddcc8':C.CREAM;
-      bx(tx,t.y,t.w,t.h,C.WOOD,tc,3);
+      // Shadow
+      r(tx+3,t.y+3,t.w,t.h,'rgba(0,0,0,.12)');
+      // Table state colors
+      let bodyC,edgeC;
+      if(t.state==='dirty'){bodyC='#b08050';edgeC=C.DBRN;}    // stained brown
+      else if(t.state==='cleaning'){bodyC='#d09860';edgeC=C.BRICK;}
+      else if(t.state==='occupied'){bodyC='#dd3333';edgeC=C.DRED;}
+      else{bodyC='#ee3333';edgeC=C.RED;} // clean bright red
+      // Table body with red tablecloth
+      bx(tx,t.y,t.w,t.h,edgeC,bodyC,3);
+      // Tablecloth decorative white edge
+      for(let d=tx+6;d<tx+t.w-6;d+=12){
+        pr(d,t.y+3,4,3,C.WHITE);
+        pr(d,t.y+t.h-8,4,3,C.WHITE);
+      }
+      // Hotpot on table
       dr(SHP,tx+t.w/2-16,t.y+4,0.85);
+      // Steam from hotpot when occupied
+      if(t.state==='occupied'){
+        const stm=Math.sin(G.gt*3+t.id*2)*0.5+0.5;
+        cx.globalAlpha=stm*0.12;
+        r(tx+t.w/2-10,t.y-10,20,6,C.WHITE);
+        cx.globalAlpha=1;
+      }
+      // Pulsing light for unhandled customers
       if(t.state==='occupied'&&t.cust&&!t.cust.order){
         const sy=t.y-2-(G.gt*2%10);
         cx.globalAlpha=0.12;pr(tx+t.w/2-4,sy,8,4,C.WHITE);cx.globalAlpha=1;
       }
+      // Dirty table indicators
       if(t.state==='dirty'){
+        // stain spots
+        pr(tx+12,t.y+12,8,6,'#886644');
+        pr(tx+40,t.y+20,6,4,'#886644');
         const hasCleaner=STAFF.some(s=>s.role==='wang'&&TASKS.some(tt=>tt.type==='clean'&&tt.tid===t.id));
-        if(hasCleaner)tx('🧹 小王收拾中',tx+t.w/2-30,t.y+t.h-18,C.LGRAY,10);
-        else tx('🧹 点击收拾',tx+t.w/2-24,t.y+t.h-18,C.WHITE,11);
+        if(hasCleaner)tx('🧹 收拾中',tx+14,t.y+t.h-18,C.LGRAY,10);
+        else tx('🧹 点击收拾',tx+12,t.y+t.h-18,C.WHITE,11);
       }
+      // Cleaning progress
       if(t.state==='cleaning'){
         const cp=Math.min(1,(t._ct||0)/3);
-        r(tx+4,t.y+t.h-6,(t.w-8)*cp,3,C.GREEN);
-        tx('🧹 收拾中...',tx+t.w/2-30,t.y+t.h-18,C.LGRAY,10);
+        r(tx+6,t.y+t.h-10,(t.w-12)*cp,4,C.GREEN);
+        tx('🧹 Progress...',tx+12,t.y+t.h-20,C.LGRAY,9);
       }
     }
   });
@@ -1026,81 +1104,137 @@ function TXTAB(cx2,tables){
 
 function drawStrip3(cx2){
   const s=STRIP.bot,y3c=STRIP.bot+STRIP.h;
-  // Floor
-  r(0,s,W,SH,'#e0d0b8');
-  for(let fy=s;fy<y3c;fy+=16){
-    const off=((fy-s)/16%2===0?0:8);
-    for(let fx=0+off;fx<WW;fx+=16){
-      const ox=fx-cx2;if(ox>-16&&ox<W)r(ox,fy,14,14,C.DFLOOR);
+  // Checkerboard floor tiles
+  for(let fy=s;fy<y3c;fy+=12){
+    const off=((fy-s)/12%2===0?0:6);
+    for(let fx=0+off;fx<WW;fx+=12){
+      const ox=fx-cx2;
+      if(ox>-12&&ox<W){
+        const isDark=((fx/12)+(fy/12))%2===0;
+        r(ox,fy,11,11,isDark?'#d4c0a0':'#e8d4b8');
+      }
     }
   }
 
-  // DOOR at center
+  // DOOR at center — 更精致
   const ddx=DOOR.x-cx2;
-  // Door frame
-  bx(ddx-2,DOOR.y-4,DOOR.w+4,DOOR.h+8,C.DBRN,0,3);
-  // Door opening (dark)
+  // Door frame with decorative top
+  bx(ddx-4,DOOR.y-6,DOOR.w+8,DOOR.h+12,C.DBRN,0,4);
+  // Door arch
+  r(ddx-2,DOOR.y-4,DOOR.w+4,4,C.DBRN);
+  // Door opening
   r(ddx,DOOR.y,DOOR.w,DOOR.h,'#1a0a00');
-  // Door curtain (red beads)
-  for(let i=0;i<DOOR.w;i+=6)pr(ddx+i,DOOR.y+4,3,DOOR.h-8,C.DRED);
-  // "老火锅" on door
-  tx('老',ddx+10,DOOR.y+16,C.YELLOW,12);
-  tx('火',ddx+10,DOOR.y+30,C.YELLOW,12);
-  tx('锅',ddx+10,DOOR.y+44,C.YELLOW,12);
+  // Warm light from outside
+  cx.globalAlpha=0.03;
+  r(ddx+4,DOOR.y+2,DOOR.w-8,DOOR.h-4,C.YELLOW);
+  cx.globalAlpha=1;
+  // Red bead curtain
+  for(let i=0;i<DOOR.w;i+=5){
+    pr(ddx+i,DOOR.y+6,3,DOOR.h-10,C.DRED);
+    if(i%10===0)pr(ddx+i,DOOR.y+2,3,4,C.GOLD);
+  }
+  // "老火锅" sign on door
+  tx('老',ddx+10,DOOR.y+18,C.YELLOW,11);
+  tx('火',ddx+10,DOOR.y+30,C.YELLOW,11);
+  tx('锅',ddx+10,DOOR.y+42,C.YELLOW,11);
 
   // Label above door
-  tx('🚪 入口',ddx-4,DOOR.y-14,C.CREAM,10);
+  tx('🚪 入口',ddx-4,DOOR.y-16,C.GOLD,10);
 
+  // Kitchen area divider (counter)
+  const kx=430-cx2;
+  if(kx>-20&&kx<W){
+    r(kx,STRIP.bot+2,4,STRIP.h-4,C.WOOD);
+    r(kx+1,STRIP.bot+2,2,4,C.DBRN);
+  }
   // Kitchen label
-  tx('🍳 厨房区 →',450-cx2,STRIP.bot+8,C.DGRAY,12);
+  tx('🍳 厨房',440-cx2,STRIP.bot+8,C.DGRAY,11);
   const slv=G._stoveLv||0;
-  if(slv>0)tx(`Lv.${slv}`,580-cx2,STRIP.bot+20,C.ORANGE,10);
+  if(slv>0){
+    const fl=Math.sin(G.gt*3)>0;
+    if(fl)tx(`Lv.${slv}`,580-cx2,STRIP.bot+22,C.ORANGE,10);
+  }
+
+  // Counter surface
+  const ctrX=450-cx2,ctrY=STRIP.bot+2;
+  if(ctrX>-20&&ctrX<W){
+    r(ctrX+10,ctrY,250,4,C.cream);
+    r(ctrX+10,ctrY+2,250,2,'rgba(0,0,0,.05)');
+  }
 
   // Stoves
   STOVES.forEach(st=>{
     const sx=st.x-cx2;
     if(sx>-80&&sx<W+10){
-      pr(sx,st.y,st.w,st.h,C.DGRAY);
-      pr(sx+4,st.y+4,st.w-8,st.h-8,C.BLACK);
-      pr(sx+12,st.y-4,st.w-24,5,C.GRAY);
+      // Stove body
+      bx(sx,st.y,st.w,st.h,C.DGRAY,C.BLACK,3);
+      // Stove top rim
+      pr(sx+2,st.y,st.w-4,3,C.GRAY);
+      // Burner grate
+      pr(sx+10,st.y+2,st.w-20,2,C.DGRAY);
+      // Pot/Wok on stove
       if(st.busy){
         const p=Math.min(1,st.progress/st.maxP);
         const done=p>=1;
-        // Flame effect (等级越高火焰越蓝)
+        // Pot body
+        pr(sx+8,st.y-6,st.w-16,8,C.DGRAY);
+        pr(sx+10,st.y-8,st.w-20,4,C.GRAY);
+        // Pot handles
+        pr(sx+2,st.y-2,6,3,C.DGRAY);
+        pr(sx+st.w-8,st.y-2,6,3,C.DGRAY);
+        // Flame effect
         if(!done){
           const fh=5+Math.sin(G.gt*18+st.id)*2;
           const slv=G._stoveLv||0;
           const fColor=slv>=4?C.TEAL:slv>=2?'#88aaff':C.ORANGE;
           for(let f=0;f<fh;f++){
-            const a=Math.sin(G.gt*20+st.id*3+f*3)>0?0.7:0.3;
+            const a=Math.sin(G.gt*20+st.id*3+f*3)>0?0.8:0.3;
             cx.globalAlpha=a;
-            pr(sx+20-f*.5,st.y-8-f*2,6+f,3,fColor);
+            pr(sx+22-f*.5,st.y-12-f*2,4+f*0.8,3,fColor);
           }
           cx.globalAlpha=1;
           // Steam effect
           const stm=Math.sin(G.gt*4+st.id*7)*0.5+0.5;
-          cx.globalAlpha=stm*0.15;
-          r(sx+16+Math.sin(G.gt*6+st.id)*8,st.y-16-Math.sin(G.gt*3+st.id)*4,8,6,C.WHITE);
-          r(sx+30+Math.cos(G.gt*5+st.id)*6,st.y-14-Math.cos(G.gt*4+st.id)*3,6,4,C.WHITE);
+          cx.globalAlpha=stm*0.2;
+          r(sx+18+Math.sin(G.gt*6+st.id)*6,st.y-18-Math.sin(G.gt*3+st.id)*3,10,6,C.WHITE);
+          r(sx+30+Math.cos(G.gt*5+st.id)*5,st.y-16-Math.cos(G.gt*4+st.id)*2,8,4,C.WHITE);
+          cx.globalAlpha=1;
+          // Content inside pot
+          const bubble=Math.sin(G.gt*8+st.id*5)>0;
+          if(bubble){
+            pr(sx+14+Math.sin(G.gt*7+st.id)*3,st.y-8,4,2,C.ORANGE);
+            pr(sx+26+Math.cos(G.gt*6+st.id)*2,st.y-9,3,2,C.YELLOW);
+          }
+        }else{
+          // Done: pot glow
+          cx.globalAlpha=0.12;
+          r(sx+8,st.y-2,st.w-16,st.h-4,C.YELLOW);
           cx.globalAlpha=1;
         }
-        // Progress bar
-        bx(sx+6,st.y-22,st.w-12,7,C.DBRN,C.BLACK,2);
+        // Progress bar below pot
+        bx(sx+8,st.y-22,st.w-16,6,C.DBRN,C.BLACK,2);
         const bc=done?C.YELLOW:C.ORANGE;
-        r(sx+8,st.y-20,(st.w-16)*p,5,bc);
+        r(sx+10,st.y-20,(st.w-20)*p,4,bc);
+        // Status text
         if(done){
           const hasServer=STAFF.some(s=>s.role==='wang'&&TASKS.some(t=>t.type==='serve'&&t.tid===st.id));
-          if(hasServer)tx('👨‍🍳 小王送菜',sx+6,st.y+st.h-8,C.LGRAY,10);
-          else tx('🍲 点击上菜',sx+10,st.y+st.h-8,C.YELLOW,12);
+          if(hasServer)tx('👨‍🍳 送菜中',sx+8,st.y+st.h-8,C.LGRAY,10);
+          else tx('🍲 点击上菜!',sx+10,st.y+st.h-8,C.YELLOW,12);
+        }else{
+          tx(`⏳${Math.floor(p*100)}%`,sx+20,st.y+st.h-8,C.LGRAY,9);
         }
-        else tx(`⏳${Math.floor(p*100)}%`,sx+20,st.y+st.h-8,C.LGRAY,9);
       }else{
+        // Idle stove
         const has=orderQ.some(x=>!x.as);
         if(has){
           const gp=0.2+Math.sin(G.gt*4+st.id)*0.15;
           cx.globalAlpha=gp;r(sx-2,st.y-2,st.w+4,st.h+4,C.ORANGE);cx.globalAlpha=1;
+          pr(sx+20,st.y,st.w-40,2,C.DRED);
           tx('🔥 待命',sx+18,st.y+st.h-8,C.YELLOW,10);
-        }else{pr(sx+22,st.y-6,4,4,C.DRED);tx('空闲',sx+18,st.y+st.h-8,C.GRAY,9);}
+        }else{
+          pr(sx+20,st.y,st.w-40,2,C.DGRAY);
+          tx('空闲',sx+18,st.y+st.h-8,C.GRAY,9);
+        }
       }
     }
   });
@@ -1108,58 +1242,120 @@ function drawStrip3(cx2){
 
 function drawRoad(cx2){
   const s=STRIP.road,rs=STRIP.road+SH;
-  // Building front facade (top edge of road strip)
-  r(0,s,W,30,C.BRICK);
-  for(let bx=0;bx<WW;bx+=12){
-    const ox=bx-cx2;if(ox>-12&&ox<W)pr(ox,s+10,6,4,C.DBRICK);
+  // Building front facade — brick wall with detail
+  r(0,s,W,28,C.BRICK);
+  for(let bx=0;bx<WW;bx+=16){
+    const ox=bx-cx2;
+    if(ox>-16&&ox<W){
+      const rowOff=((bx/16)%2===0?0:8);
+      pr(ox,s+6,14,8,C.DBRICK);
+      pr(ox+rowOff,s+16,14,8,C.DBRICK);
+    }
   }
-  // Welcome signboard above door
-  const sgx=DOOR.x-cx2-24;
+  // Facade top edge
+  r(0,s,W,3,C.DBRN);
+  r(0,s+28,W,2,C.DBRN);
+  // Welcome signboard above door — 更精致
+  const sgx=DOOR.x-cx2-28;
   if(sgx>-50&&sgx<W){
-    bx(sgx,s-2,52,20,C.DBRN,C.GOLD,3);
-    r(sgx+4,s+2,44,14,C.RED);
-    tx('🔥 老火锅',sgx+6,s+14,C.YELLOW,11);
+    // Signboard frame
+    bx(sgx-2,s-4,60,24,C.DBRN,0,4);
+    // Red sign background
+    r(sgx+2,s,56,16,C.RED);
+    // Gold border
+    bx(sgx,s-2,56,20,C.GOLD,0,2);
+    // Text
+    tx('🔥 老火锅',sgx+6,s+14,C.YELLOW,12);
+    // Decorative corner flourishes
+    pr(sgx+4,s+2,3,3,C.GOLD);
+    pr(sgx+49,s+2,3,3,C.GOLD);
+    pr(sgx+4,s+13,3,3,C.GOLD);
+    pr(sgx+49,s+13,3,3,C.GOLD);
   }
-  // Door bottom (continues from restaurant)
-  r(DOOR.x-cx2-2,s-4,DOOR.w+4,8,C.DBRN);
-  // Potted plants by entrance
-  const plx=DOOR.x-cx2-26;
+  // Door threshold
+  r(DOOR.x-cx2-4,s-2,DOOR.w+8,6,C.DBRN);
+  // Decorative lamps flanking door
+  [-30,DOOR.w+16].forEach(off=>{
+    const lx=DOOR.x+off-cx2;
+    if(lx>-20&&lx<W){
+      pr(lx+2,s+6,4,16,C.DGRAY); // lamp body
+      r(lx,s+4,8,3,C.GOLD);     // top
+      r(lx+1,s+6,6,6,C.YELLOW); // light
+      cx.globalAlpha=0.08;
+      r(lx-4,s+2,14,14,C.YELLOW);
+      cx.globalAlpha=1;
+    }
+  });
+  // Potted plants by entrance (更大更精致)
+  const plx=DOOR.x-cx2-24;
   if(plx>-30&&plx<W){
-    pr(plx,s+16,8,12,C.DGRAY);        // pot
-    r(plx+1,s+27,6,2,C.BLACK);         // pot bottom
-    pr(plx,s+10,8,8,C.GREEN);          // leaves
-    pr(plx+2,s+6,4,6,C.DGREEN);        // dark leaves
+    pr(plx+2,s+18,10,10,C.DGRAY);    // pot
+    r(plx+1,s+27,12,3,C.DBRN);       // pot rim
+    pr(plx+4,s+14,6,6,C.GREEN);      // leaves
+    pr(plx+6,s+10,4,6,C.DGREEN);     // dark leaves
+    pr(plx+8,s+12,2,6,C.GREEN);
   }
-  const prx=DOOR.x-cx2+DOOR.w+6;
+  const prx=DOOR.x-cx2+DOOR.w+4;
   if(prx>-30&&prx<W){
-    pr(prx,s+16,8,12,C.DGRAY);
-    r(prx+1,s+27,6,2,C.BLACK);
-    pr(prx,s+10,8,8,C.GREEN);
-    pr(prx+2,s+6,4,6,C.DGREEN);
+    pr(prx-4,s+18,10,10,C.DGRAY);
+    r(prx-5,s+27,12,3,C.DBRN);
+    pr(prx-2,s+14,6,6,C.GREEN);
+    pr(prx,s+10,4,6,C.DGREEN);
   }
 
-  // Sidewalk
-  r(0,s+30,W,32,C.SWALK);
+  // Sidewalk — 纹理更丰富
+  r(0,s+30,W,30,C.SWALK);
+  // Sidewalk tiles
   for(let lx=0;lx<WW;lx+=16){
-    const ox=lx-cx2;if(ox>-12&&ox<W)pr(ox,s+38,8,4,C.LGRAY);
+    const ox=lx-cx2;
+    if(ox>-16&&ox<W){
+      r(ox+2,s+34,12,8,C.LGRAY);
+      r(ox+2,s+46,12,8,C.LGRAY);
+    }
   }
+  // Sidewalk edge
+  r(0,s+58,W,4,C.GRAY);
 
   // Road
   const rdY=s+62;
   r(0,rdY,W,SH-62,C.ROAD);
-  for(let rl=0;rl<WW;rl+=24){
-    const ox=rl-cx2;if(ox>-20&&ox<W)pr(ox,rdY+20,14,3,C.RLINE);
+  // Road markings (dashed center line)
+  for(let rl=0;rl<WW;rl+=30){
+    const ox=rl-cx2;
+    if(ox>-30&&ox<W)pr(ox+4,rdY+36,18,3,C.RLINE);
   }
+  // Road edge lines
+  r(0,rdY,W,2,C.GRAY);
+  r(0,rdY+SH-64,W,2,C.GRAY);
 
-  // Car
-  const co=Math.floor(G.gt*35)%(WW+80)-40;
+  // Car — 更帅的车
+  const co=Math.floor(G.gt*35)%(WW+100)-50;
   if(co>-60&&co<WW){
-    const cx3=co-cx2,cy=rdY+6;
-    r(cx3,cy,44,18,C.BLUE);r(cx3+6,cy-6,36,12,C.BLUE);
-    pr(cx3+8,cy-10,8,8,C.LGRAY);pr(cx3+30,cy-10,8,8,C.LGRAY);
-    r(cx3+6,cy+16,8,6,C.BLACK);r(cx3+30,cy+16,8,6,C.BLACK);
-    r(cx3+40,cy+2,4,8,C.YELLOW);
-    pr(cx3+14,cy-4,6,4,C.LGRAY);pr(cx3+26,cy-4,6,4,C.LGRAY);
+    const cx3=co-cx2,cy=rdY+8;
+    // Car body
+    r(cx3,cy,48,16,C.RED);
+    r(cx3+4,cy-6,40,10,C.RED);
+    // Roof
+    r(cx3+10,cy-8,30,4,C.DRED);
+    // Windows
+    r(cx3+10,cy-6,12,8,C.LGRAY);
+    r(cx3+28,cy-6,12,8,C.LGRAY);
+    // Wheel wells
+    r(cx3+4,cy+12,10,6,C.DGRAY);
+    r(cx3+34,cy+12,10,6,C.DGRAY);
+    // Wheels
+    r(cx3+6,cy+14,6,6,C.BLACK);
+    r(cx3+36,cy+14,6,6,C.BLACK);
+    // Headlight
+    r(cx3+44,cy+2,4,6,C.YELLOW);
+    // Window divider
+    r(cx3+22,cy-6,2,8,C.DGRAY);
+    // Rear light
+    r(cx3,cy+2,3,4,C.ORANGE);
+    // Shadow under car
+    cx.globalAlpha=0.1;
+    r(cx3-2,cy+20,54,4,C.BLACK);
+    cx.globalAlpha=1;
   }
 }
 
