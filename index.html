@@ -850,7 +850,7 @@ function tip(m){
 // ============================================================
 // UPDATE
 // ============================================================
-let st=0,pt=0;
+let st=0,pt=0,firstSpawn=true;
 
 function upd(dt){
   G.gt+=dt;
@@ -861,6 +861,8 @@ function upd(dt){
   // 基于等级的生成间隔：铁级5s→金级1s
   const spawnInterval=Math.max(1,5-G.level*0.28);
   const maxCust=Math.min(8,4+Math.floor(G.level/2));
+  // 首次生成加速（1.5秒后到第一个顾客，让场景不显空旷）
+  if(firstSpawn&&st>1.5){st=spawnInterval+1;firstSpawn=false;}
   st+=dt;if(st>spawnInterval&&E.filter(e=>e.type==='cust'&&e.st!=='left').length<maxCust
     &&TABLES.some(t=>t.state==='clean')){st=0;spawnCust();}
   // Queue: tick patience + try seat
@@ -875,7 +877,7 @@ function upd(dt){
   // Try seat queued groups every 2s
   G._qTimer=(G._qTimer||0)+dt;
   if(G._qTimer>2){G._qTimer=0;processQueue();}
-  pt+=dt;if(pt>4&&E.filter(e=>e.type==='ped'&&e.st!=='left').length<2){pt=0;spawnPed();}
+  pt+=dt;if(pt>4&&E.filter(e=>e.type==='ped'&&e.st!=='left').length<3){pt=0;spawnPed();if(!E.some(e=>e.type==='ped'))spawnPed();}
   E.forEach(e=>ENT.upd(e,dt));
   // 过滤已离开+异常实体（防止 NaN 堆积）
   E=E.filter(e=>e.st!=='left'&&isFinite(e.x)&&isFinite(e.y));
@@ -1299,7 +1301,11 @@ function drawStrip3(cx2){
           tx('🔥 待命',sx+18,st.y+st.h-8,C.YELLOW,10);
         }else{
           pr(sx+20,st.y,st.w-40,2,C.DGRAY);
-          tx('空闲',sx+18,st.y+st.h-8,C.GRAY,9);
+          tx('⏳',sx+18,st.y+st.h-8,C.DGRAY,9);
+          const stm=Math.sin(G.gt*5+st.id*3)*0.5+0.5;
+          cx.globalAlpha=stm*0.08;
+          r(sx+20+Math.sin(G.gt*7+st.id)*6,st.y-8+Math.sin(G.gt*4+st.id)*3,12,6,C.WHITE);
+          cx.globalAlpha=1;
         }
       }
     }
