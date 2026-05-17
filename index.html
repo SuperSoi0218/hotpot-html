@@ -85,13 +85,14 @@ function mkChar(hair,skin,shirt,pants,shoes){
   const H=hair,S=skin,T=shirt,P=pants,F=shoes;
   const base=[];
   base[0]=[_,_,H,H,H,H,_,_]; base[1]=[_,H,H,H,H,H,H,_];
-  base[2]=[_,H,S,S,S,S,H,_]; base[3]=[_,S,S,C.BLACK,C.BLACK,S,S,_];
-  base[4]=[_,S,S,_,_,S,S,_]; base[5]=[_,S,S,S,S,S,S,_];
-  base[6]=[_,T,T,T,T,T,T,_]; base[7]=[_,_,T,T,T,T,_,_];
-  base[8]=[_,_,P,P,P,P,_,_]; base[9]=[_,P,_,_,_,P,_,_];
-  base[10]=[_,P,_,_,_,P,_,_]; base[11]=[_,_,F,F,F,F,_,_];
+  base[2]=[_,H,S,S,S,S,H,_]; base[3]=[_,S,C.WHITE,C.BLACK,C.WHITE,S,S,_];
+  base[4]=[_,S,C.RED,S,S,C.RED,S,_]; base[5]=[_,S,S,_,_,S,S,_];
+  base[6]=[_,S,S,S,S,S,S,_]; base[7]=[_,S,T,T,T,T,S,_];
+  base[8]=[_,T,T,T,T,T,T,_]; base[9]=[_,P,P,P,P,P,P,_];
+  base[10]=[P,P,_,_,_,_,P,P]; base[11]=[_,_,F,F,F,F,_,_];
   const walk=base.map(r=>[...r]);
-  walk[9]=[P,P,_,_,_,_,P,_]; walk[10]=[_,P,_,_,_,P,_,_]; walk[11]=[_,_,_,F,F,_,_,_];
+  walk[9]=[_,P,P,P,P,_,_,_]; walk[10]=[P,P,_,_,_,P,P,_];
+  walk[11]=[_,_,F,F,_,F,F,_];
   return[base,walk];
 }
 const CVAR=[
@@ -414,6 +415,13 @@ function drawStrip1(cx2){
   for(let wx=0;wx<w;wx+=24){
     const ox=wx-cx2;if(ox>-24&&ox<W)pr(ox,s+4,12,12,C.DWALL);
   }
+  // Window decoration (between tables)
+  const wnx=240-cx2;
+  if(wnx>-60&&wnx<W){
+    bx(wnx,s+10,48,56,C.DBRN,'#b0d0f0',3);
+    bx(wnx+4,s+14,40,48,C.DBRN,'#d0e8ff',2);
+    r(wnx+24,s+14,2,48,C.DBRN); r(wnx+4,s+38,40,2,C.DBRN);
+  }
   // Wall trim bottom
   r(0,s+SH-6,W,6,C.WOOD);
   TXTAB(cx2,TABLES.filter(t=>t.y>=s&&t.y<s+SH));
@@ -425,6 +433,15 @@ function drawStrip2(cx2){
   r(0,s,W,SH,'#f5e8d0');
   for(let wx=0;wx<w;wx+=32){
     const ox=wx-cx2;if(ox>-32&&ox<W)pr(ox,s+30,16,8,C.DFLOOR);
+  }
+  // Wall decoration: hanging picture
+  const pxx=440-cx2;
+  if(pxx>-40&&pxx<W){
+    bx(pxx,s+12,28,24,C.DBRN);                 // frame
+    r(pxx+3,s+15,22,18,C.RED);                 // red bg
+    r(pxx+8,s+18,12,4,C.GOLD);                 // decorative line
+    pr(pxx+12,s+24,4,6,C.GREEN);               // plant
+    r(pxx+2,s+14,3,3,C.YELLOW);
   }
   r(0,s+SH-6,W,6,C.WOOD);
   TXTAB(cx2,TABLES.filter(t=>t.y>=s&&t.y<s+SH));
@@ -560,7 +577,7 @@ function drawEnts(cx2){
   si.forEach(e=>{
     const ex=e.x-cx2,ey=e.y;
     if(ex<-50||ex>W+30)return;
-    const sc=1.25,ch=12*PU*sc;
+    const sc=1.5,ch=12*PU*sc;
     if(e.type==='cust'||e.type==='ped'){
       const k=e.type==='ped'?'ped':'c'+(e.va%8),sp=CS[k];
       if(!sp)return;
