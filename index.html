@@ -133,7 +133,7 @@ const SCO=[
 // ============================================================
 // STATE
 // ============================================================
-const G={gold:300,level:1,exp:0,served:0,earned:0,gt:0};
+const G={gold:300,level:1,exp:0,served:0,earned:0,gt:0,_ct:0};
 let E=[],orderQ=[],oid=0;
 
 // ============================================================
@@ -172,6 +172,7 @@ const ENT={
   },
   _mv(e,dt,tx,ty){
     const dx=tx-e.x,dy=ty-e.y,dist=Math.sqrt(dx*dx+dy*dy);
+    if(isNaN(dist)||!isFinite(dist)){e.st='left';return;}
     if(dist<4){
       e.wpi++;
       if(e.wpi>=e.wp.length){
@@ -233,7 +234,12 @@ function serveFood(st){
   const o=orderQ.find(x=>x.id===st.orderId);
   if(!o){st.busy=false;return;}
   const cu=E.find(e=>e.id===o.cid);
-  if(!cu||cu.st!=='seat'){st.busy=false;return;}
+  if(!cu||cu.st!=='seat'){
+    // 顾客已不在座位 → 取消此订单，释放灶台
+    orderQ=orderQ.filter(x=>x.id!==o.id);
+    st.busy=false;st.progress=0;st.orderId=null;
+    return;
+  }
   cu.st='eat';cu.ep=0;
   st.busy=false;st.progress=0;st.orderId=null;
   orderQ=orderQ.filter(x=>x.id!==o.id);
@@ -265,9 +271,9 @@ function lvlUp(){
 // ============================================================
 function checkout(cu){
   if(cu.st!=='done')return;
-  const bp=cu.want?cu.want.p:50;
+  const bp=cu.want?.p??50;
   const sb=1+(cu.sat-50)/100;
-  const inc=Math.floor(bp*sb);
+  const inc=Math.max(1,Math.floor(bp*sb));
   G.gold+=inc;G.earned+=inc;G.served++;G.exp+=Math.floor(inc*0.1);
   lvlUp();
   cu.st='wout';cu.wp=[{x:DOOR.x,y:DOOR.y+DOOR.h-4},{x:DOOR.x,y:ROAD_Y},
@@ -361,7 +367,8 @@ function upd(dt){
     &&TABLES.some(t=>t.state==='clean')){st=0;spawnCust();}
   pt+=dt;if(pt>4&&E.filter(e=>e.type==='ped'&&e.st!=='left').length<2){pt=0;spawnPed();}
   E.forEach(e=>ENT.upd(e,dt));
-  E=E.filter(e=>e.st!=='left');
+  // 过滤已离开+异常实体（防止 NaN 堆积）
+  E=E.filter(e=>e.st!=='left'&&isFinite(e.x)&&isFinite(e.y));
   // Auto-cook: idle stoves pick up unassigned orders automatically
   STOVES.forEach(s=>{
     if(!s.busy&&orderQ.some(o=>!o.as)){
@@ -489,7 +496,7 @@ function drawStrip3(cx2){
         if(!done){
           const fh=5+Math.sin(G.gt*18+st.id)*2;
           for(let f=0;f<fh;f++){
-            const a=Math.sin(G.gt*20+st.id*3+f*3)>0?.7:.3;
+            const a=Math.sin(G.gt*20+st.id*3+f*3)>0?0.7:0.3;
             cx.globalAlpha=a;
             pr(sx+20-f*.5,st.y-8-f*2,6+f,3,C.ORANGE);
           }
@@ -629,8 +636,18 @@ function drawHUD(cx2){
 // ============================================================
 let lt=0;
 function loop(t){
-  const dt=Math.min(.1,(t-lt)/1000);lt=t;
-  upd(dt);draw();requestAnimationFrame(loop);
+  try {
+    const dt=Math.min(.1,(t-lt)/1000);lt=t;
+    upd(dt);draw();
+  } catch(e){
+    // 异常保护：防止单次错误卡死整个游戏
+    console.error('⚠️',e);
+    try{
+      // 清理异常实体（NaN坐标等）
+      E=E.filter(e=>isFinite(e.x)&&isFinite(e.y));
+    }catch(_){}
+  }
+  requestAnimationFrame(loop);
 }
 
 // ============================================================
