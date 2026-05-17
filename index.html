@@ -137,6 +137,150 @@ const SCO=[
 ];
 
 // ============================================================
+// LPC SPRITE LOADING SYSTEM
+// ============================================================
+const LPC={ready:false,debug:false};
+const LPC_TILE=32;
+const LPC_SHEETS={
+  furniture:{src:'assets/lpc/lpc-tavern/tavern-furniture.png',img:null,cols:32,rows:32},
+  cooking:{src:'assets/lpc/lpc-tavern/tavern-cooking.png',img:null,cols:16,rows:16},
+  deco:{src:'assets/lpc/lpc-tavern/tavern-deco.png',img:null,cols:16,rows:56},
+};
+
+let lpcLoaded=0,lpcTotal=3;
+function loadLPC(cb){
+  for(const[k,v]of Object.entries(LPC_SHEETS)){
+    const img=new Image();
+    img.onload=()=>{v.img=img;lpcLoaded++;if(lpcLoaded>=lpcTotal){LPC.ready=true;if(cb)cb();}};
+    img.onerror=()=>{console.warn('LPC load failed:',v.src);lpcLoaded++;if(lpcLoaded>=lpcTotal&&cb)cb();};
+    img.src=v.src;
+  }
+}
+
+// Safe LPC tile drawer (no-op if not ready)
+function drawLPC(sheet,col,row,dx,dy,scale){
+  if(!LPC.ready)return;
+  const s=LPC_SHEETS[sheet];
+  if(!s||!s.img)return;
+  const sc=scale||1;
+  const sz=LPC_TILE*sc;
+  cx.imageSmoothingEnabled=false;
+  cx.drawImage(s.img,col*LPC_TILE,row*LPC_TILE,LPC_TILE,LPC_TILE,dx|0,dy|0,sz|0,sz|0);
+}
+
+// Draw a 2x2 tile block
+function drawLPC2x2(sheet,c0,r0,dx,dy,scale){
+  const sc=scale||1;
+  drawLPC(sheet,c0,r0,dx,dy,sc);
+  drawLPC(sheet,c0+1,r0,dx+LPC_TILE*sc,dy,sc);
+  drawLPC(sheet,c0,r0+1,dx,dy+LPC_TILE*sc,sc);
+  drawLPC(sheet,c0+1,r0+1,dx+LPC_TILE*sc,dy+LPC_TILE*sc,sc);
+}
+
+// Draw a 1x2 tile block (vertical)
+function drawLPC1x2(sheet,c0,r0,dx,dy,scale){
+  const sc=scale||1;
+  drawLPC(sheet,c0,r0,dx,dy,sc);
+  drawLPC(sheet,c0,r0+1,dx,dy+LPC_TILE*sc,sc);
+}
+
+// Draw a 2x1 tile block (horizontal)
+function drawLPC2x1(sheet,c0,r0,dx,dy,scale){
+  const sc=scale||1;
+  drawLPC(sheet,c0,r0,dx,dy,sc);
+  drawLPC(sheet,c0+1,r0,dx+LPC_TILE*sc,dy,sc);
+}
+
+// LPC tile mapping (best-guess based on pixel analysis)
+// Columns in each sprite sheet: 0-based (c,r)
+const TM={
+  // -- Cooking sheet --
+  stoveBody:[0,0],        // R0-c0: solid beige — stove base
+  stoveTop:[0,1],         // R1-c0: partial — stove top/rim
+  stovePot:[5,2],         // R2-c5: brown/red — pot on stove
+  stoveFire:[12,0],       // R0-c12: red/orange — flame
+  foodPot:[11,7],         // R7-c11: full orange — large pot of food
+  foodPot2:[12,7],        // R7-c12: full brownish — second pot
+  plate:[0,11],           // R11-c0: dark round — plate/bowl
+  bowl:[8,11],            // R11-c8: brown — bowl
+  meat:[2,5],             // R5-c2: red — meat/food
+  cookedMeat:[4,5],       // R5-c4: orange — cooked meat
+
+  // -- Furniture sheet --
+  tableTL:[0,0],          // table top-left corner (2x2 table)
+  tableTR:[2,0],          // table top-right
+  tableBL:[0,2],          // table bottom-left
+  tableBR:[2,2],          // table bottom-right
+  tableTop:[0,4],         // R4-c0: solid brown — table surface
+  chair:[7,0],            // chair back
+  chairSeat:[5,0],        // chair seat
+  stool:[24,0],           // C24-R0: brown — stool
+  counter:[0,6],          // R6-c0: large — counter/bar
+  shelf:[23,0],           // shelf-like
+
+  // -- Deco sheet --
+  bread:[0,0],            // R0-c0: brown — bread/roll
+  plateItem:[0,3],        // R0-c3: beige — plate with food
+  coin:[0,6],             // R0-c6: golden — coin
+  drink:[0,10],           // R0-c10: dark — drink/mug
+  foodBowl:[25,0],        // R25-c0: brown/gold — food bowl
+  goldBar:[8,0],          // R8-c0: yellow — gold bar
+  bottle:[16,0],          // R16-c0: dark — bottle
+  flag:[46,0],            // R46-c0: blue/red — flag/banner
+};
+
+// Debug: draw ALL tiles from a sheet in a grid at the bottom of canvas
+let lpcDebug=false;
+document.addEventListener('keydown',e=>{
+  if(e.key==='d'||e.key==='D'){
+    lpcDebug=!lpcDebug;
+    const tip=document.getElementById('tip');
+    if(tip)tip.textContent=lpcDebug?'🔍 LPC贴图调试模式 ON (再次按D关闭)':'🔥 点击"老火锅"开始！';
+  }
+});
+
+function drawLPCDebug(){
+  if(!LPC.ready||!lpcDebug)return;
+  const sheets=['furniture','cooking','deco'];
+  let curY=5;
+  sheets.forEach(sname=>{
+    const s=LPC_SHEETS[sname];
+    if(!s||!s.img)return;
+    // Sheet name label
+    cx.fillStyle='#ffcc00';
+    cx.font='bold 11px monospace';
+    cx.fillText(sname.toUpperCase(),5,curY+10);
+    curY+=14;
+    // Draw tiles in a grid
+    const scale=0.7;
+    const tsz=LPC_TILE*scale;
+    const perRow=Math.min(s.cols,24);
+    const rows=Math.ceil(s.rows);
+    // Draw title with info
+    cx.fillStyle='#aaa';
+    cx.font='9px monospace';
+    cx.fillText(`${s.cols}x${s.rows} tiles`,10,curY+8);
+    curY+=14;
+    // If debug draw mode, only draw first 8 rows to fit screen
+    const maxRows=Math.min(rows,8);
+    for(let r=0;r<maxRows;r++){
+      for(let c=0;c<perRow;c++){
+        const sx=5+c*tsz,sy=curY+r*tsz;
+        drawLPC(sname,c,r,sx,sy,scale);
+        // Coordinate label
+        if(c%2===0&&r%2===0){
+          cx.fillStyle='rgba(255,255,255,0.5)';
+          cx.font='6px monospace';
+          cx.fillText(`${c},${r}`,sx+1,sy+7);
+        }
+      }
+    }
+    curY+=maxRows*tsz+8;
+    if(curY>690)return; // don't overflow canvas
+  });
+}
+
+// ============================================================
 // STATE
 // ============================================================
 const G={gold:300,diamond:0,level:1,exp:0,served:0,earned:0,gt:0,_ct:0,
@@ -969,6 +1113,8 @@ function draw(){
   // HUD
   drawHUD(cx2);
 
+  // LPC debug overlay (on top of everything)
+  drawLPCDebug();
 }
 
 function drawStrip1(cx2){
@@ -1110,18 +1256,65 @@ function TXTAB(cx2,tables){
     if(tbx>-90&&tbx<W+10){
       // Shadow
       r(tbx+3,t.y+3,t.w,t.h,'rgba(0,0,0,.12)');
-      // Table state colors
-      let bodyC,edgeC;
-      if(t.state==='dirty'){bodyC='#b08050';edgeC=C.DBRN;}    // stained brown
-      else if(t.state==='cleaning'){bodyC='#d09860';edgeC=C.BRICK;}
-      else if(t.state==='occupied'){bodyC='#dd3333';edgeC=C.DRED;}
-      else{bodyC='#ee3333';edgeC=C.RED;} // clean bright red
-      // Table body with red tablecloth
-      bx(tbx,t.y,t.w,t.h,edgeC,bodyC,3);
-      // Tablecloth decorative white edge
-      for(let d=tbx+6;d<tbx+t.w-6;d+=12){
-        pr(d,t.y+3,4,3,C.WHITE);
-        pr(d,t.y+t.h-8,4,3,C.WHITE);
+
+      // LPC sprite table (when loaded)
+      if(LPC.ready){
+        const ts=1.0;
+        const tpw=64,tph=64; // 2x2 tiles at 32px
+        const txo=tbx+(t.w-tpw)/2; // center the sprite table
+        const tyo=t.y+(t.h-tph)/2-2;
+        // Table top (2x2 tiles: R4-c0~c3)
+        drawLPC('furniture',0,4,txo,tyo,ts);
+        drawLPC('furniture',1,4,txo+32,tyo,ts);
+        drawLPC('furniture',0,5,txo,tyo+32,ts);
+        drawLPC('furniture',1,5,txo+32,tyo+32,ts);
+        // Table state indicated by overlay color
+        let tint=null;
+        if(t.state==='dirty')tint='rgba(139,90,43,0.25)';
+        else if(t.state==='occupied')tint='rgba(200,50,50,0.12)';
+        else if(t.state==='cleaning')tint='rgba(100,180,255,0.08)';
+        if(tint){r(txo,tyo,tpw,tph,tint);}
+        // Chairs (top/bottom for 2-person, all 4 sides for 4-person)
+        const sc=0.7;
+        const chW=22*sc,chH=28*sc;
+        const chGap=2;
+        // Left chair
+        drawLPC('furniture',4,0,txo-chW-chGap,tyo+4,sc);
+        // Right chair
+        drawLPC('furniture',4,0,txo+tpw+chGap,tyo+4,sc);
+        if(t.max>=4){
+          // Top chair
+          drawLPC('furniture',4,0,txo+tpw/2-chW/2,tyo-chH-2,sc);
+          // Bottom chair
+          drawLPC('furniture',4,0,txo+tpw/2-chW/2,tyo+tph+2,sc);
+        }
+      }else{
+        // Table state colors (procedural fallback)
+        let bodyC,edgeC;
+        if(t.state==='dirty'){bodyC='#b08050';edgeC=C.DBRN;}
+        else if(t.state==='cleaning'){bodyC='#d09860';edgeC=C.BRICK;}
+        else if(t.state==='occupied'){bodyC='#dd3333';edgeC=C.DRED;}
+        else{bodyC='#ee3333';edgeC=C.RED;}
+        // Table body with red tablecloth
+        bx(tbx,t.y,t.w,t.h,edgeC,bodyC,3);
+        // Tablecloth decorative white edge
+        for(let d=tbx+6;d<tbx+t.w-6;d+=12){
+          pr(d,t.y+3,4,3,C.WHITE);
+          pr(d,t.y+t.h-8,4,3,C.WHITE);
+        }
+        // 椅子（根据桌位容量，procedural fallback）
+        const chairC=t.state==='dirty'?'#886644':'#a07040';
+        const chW2=8,chH2=12,chGap2=4;
+        bx(tbx-chW2-chGap2,t.y+8,chW2,chH2,C.DBRN,chairC,2);
+        pr(tbx-chW2-chGap2+2,t.y+4,4,6,chairC);
+        bx(tbx+t.w+chGap2,t.y+8,chW2,chH2,C.DBRN,chairC,2);
+        pr(tbx+t.w+chGap2+2,t.y+4,4,6,chairC);
+        if(t.max>=4){
+          pr(tbx+t.w/2-8,t.y-14,16,6,chairC);
+          pr(tbx+t.w/2-8,t.y-10,16,4,C.DBRN);
+          pr(tbx+t.w/2-8,t.y+t.h+6,16,6,chairC);
+          pr(tbx+t.w/2-8,t.y+t.h+4,16,4,C.DBRN);
+        }
       }
       // 桌位容量标签
       if(t.state==='clean')tx(t.label,tbx+4,t.y+t.h-16,C.GOLD,8);
@@ -1144,7 +1337,11 @@ function TXTAB(cx2,tables){
         pr(tbx+t.w/2-8,t.y+t.h+4,16,4,C.DBRN);
       }
       // Hotpot on table
-      dr(SHP,tbx+t.w/2-16,t.y+4,0.85);
+      if(LPC.ready){
+        drawLPC('deco',0,19,tbx+t.w/2-16,t.y+2,0.9);
+      }else{
+        dr(SHP,tbx+t.w/2-16,t.y+4,0.85);
+      }
       // Steam from hotpot when occupied
       if(t.state==='occupied'){
         const stm=Math.sin(G.gt*3+t.id*2)*0.5+0.5;
@@ -1240,78 +1437,131 @@ function drawStrip3(cx2){
   STOVES.forEach(st=>{
     const sx=st.x-cx2;
     if(sx>-80&&sx<W+10){
-      // Stove body
-      bx(sx,st.y,st.w,st.h,C.DGRAY,C.BLACK,3);
-      // Stove top rim
-      pr(sx+2,st.y,st.w-4,3,C.GRAY);
-      // Burner grate
-      pr(sx+10,st.y+2,st.w-20,2,C.DGRAY);
-      // Pot/Wok on stove
-      if(st.busy){
-        const p=Math.min(1,st.progress/st.maxP);
-        const done=p>=1;
-        // Pot body
-        pr(sx+8,st.y-6,st.w-16,8,C.DGRAY);
-        pr(sx+10,st.y-8,st.w-20,4,C.GRAY);
-        // Pot handles
-        pr(sx+2,st.y-2,6,3,C.DGRAY);
-        pr(sx+st.w-8,st.y-2,6,3,C.DGRAY);
-        // Flame effect
-        if(!done){
-          const fh=5+Math.sin(G.gt*18+st.id)*2;
-          const slv=G._stoveLv||0;
-          const fColor=slv>=4?C.TEAL:slv>=2?'#88aaff':C.ORANGE;
-          for(let f=0;f<fh;f++){
-            const a=Math.sin(G.gt*20+st.id*3+f*3)>0?0.8:0.3;
-            cx.globalAlpha=a;
-            pr(sx+22-f*.5,st.y-12-f*2,4+f*0.8,3,fColor);
+      if(LPC.ready){
+        // LPC Sprite stove
+        const ss=1.1;
+        const spw=42,sph=48; // approximate stove sprite dimensions
+        const sxo=sx+(st.w-spw)/2;
+        const syo=st.y+(st.h-sph)/2;
+        // Stove base (cooking R0-c0~c1 2x1 tiles)
+        drawLPC2x1('cooking',0,0,sxo,syo,ss/2);
+        // Stove top/cooking surface
+        drawLPC2x1('cooking',0,1,sxo,syo+16*ss/2,ss/2);
+        // Flame/fire if busy
+        if(st.busy){
+          const done=Math.min(1,st.progress/st.maxP)>=1;
+          if(!done){
+            // Flame animation (oscillate between fire tiles)
+            const fi=Math.floor(G.gt*8+st.id)%4;
+            drawLPC('cooking',12+fi%2,0,sxo+12,syo-12+Math.sin(G.gt*12+st.id)*2,0.6);
+            // Pot on stove
+            drawLPC('cooking',5,2,sxo+10,syo-6,0.7);
+          }else{
+            // Done - show cooked food pot
+            drawLPC('cooking',11,7,sxo+8,syo-8,0.6);
           }
-          cx.globalAlpha=1;
-          // Steam effect
-          const stm=Math.sin(G.gt*4+st.id*7)*0.5+0.5;
-          cx.globalAlpha=stm*0.2;
-          r(sx+18+Math.sin(G.gt*6+st.id)*6,st.y-18-Math.sin(G.gt*3+st.id)*3,10,6,C.WHITE);
-          r(sx+30+Math.cos(G.gt*5+st.id)*5,st.y-16-Math.cos(G.gt*4+st.id)*2,8,4,C.WHITE);
-          cx.globalAlpha=1;
-          // Content inside pot
-          const bubble=Math.sin(G.gt*8+st.id*5)>0;
-          if(bubble){
-            pr(sx+14+Math.sin(G.gt*7+st.id)*3,st.y-8,4,2,C.ORANGE);
-            pr(sx+26+Math.cos(G.gt*6+st.id)*2,st.y-9,3,2,C.YELLOW);
-          }
+          // Progress bar
+          const p=Math.min(1,st.progress/st.maxP);
+          bx(sxo+4,st.y-22,spw-8,6,C.DBRN,C.BLACK,2);
+          r(sxo+6,st.y-20,(spw-12)*p,4,done?C.YELLOW:C.ORANGE);
         }else{
-          // Done: pot glow
-          cx.globalAlpha=0.12;
-          r(sx+8,st.y-2,st.w-16,st.h-4,C.YELLOW);
-          cx.globalAlpha=1;
+          // Idle stove - show burner
+          drawLPC('cooking',12,0,sxo+16,syo-4,0.5);
         }
-        // Progress bar below pot
-        bx(sx+8,st.y-22,st.w-16,6,C.DBRN,C.BLACK,2);
-        const bc=done?C.YELLOW:C.ORANGE;
-        r(sx+10,st.y-20,(st.w-20)*p,4,bc);
-        // Status text
-        if(done){
-          const hasServer=STAFF.some(s=>s.role==='wang'&&TASKS.some(t=>t.type==='serve'&&t.tid===st.id));
-          if(hasServer)tx('👨‍🍳 送菜中',sx+8,st.y+st.h-8,C.LGRAY,10);
-          else tx('🍲 点击上菜!',sx+10,st.y+st.h-8,C.YELLOW,12);
+        // Status text (same as before)
+        if(st.busy){
+          const p=Math.min(1,st.progress/st.maxP);
+          const done=p>=1;
+          if(done){
+            const hasServer=STAFF.some(s=>s.role==='wang'&&TASKS.some(t=>t.type==='serve'&&t.tid===st.id));
+            if(hasServer)tx('👨‍🍳 送菜中',sx+8,st.y+st.h-8,C.LGRAY,10);
+            else tx('🍲 点击上菜!',sx+10,st.y+st.h-8,C.YELLOW,12);
+          }else{
+            tx(`⏳${Math.floor(p*100)}%`,sx+20,st.y+st.h-8,C.LGRAY,9);
+          }
         }else{
-          tx(`⏳${Math.floor(p*100)}%`,sx+20,st.y+st.h-8,C.LGRAY,9);
+          const has=orderQ.some(x=>!x.as);
+          if(has){
+            tx('🔥 待命',sx+18,st.y+st.h-8,C.YELLOW,10);
+          }else{
+            tx('⏳',sx+18,st.y+st.h-8,C.DGRAY,9);
+          }
         }
       }else{
-        // Idle stove
-        const has=orderQ.some(x=>!x.as);
-        if(has){
-          const gp=0.2+Math.sin(G.gt*4+st.id)*0.15;
-          cx.globalAlpha=gp;r(sx-2,st.y-2,st.w+4,st.h+4,C.ORANGE);cx.globalAlpha=1;
-          pr(sx+20,st.y,st.w-40,2,C.DRED);
-          tx('🔥 待命',sx+18,st.y+st.h-8,C.YELLOW,10);
+        // Procedural stove (fallback)
+        // Stove body
+        bx(sx,st.y,st.w,st.h,C.DGRAY,C.BLACK,3);
+        // Stove top rim
+        pr(sx+2,st.y,st.w-4,3,C.GRAY);
+        // Burner grate
+        pr(sx+10,st.y+2,st.w-20,2,C.DGRAY);
+        // Pot/Wok on stove
+        if(st.busy){
+          const p=Math.min(1,st.progress/st.maxP);
+          const done=p>=1;
+          // Pot body
+          pr(sx+8,st.y-6,st.w-16,8,C.DGRAY);
+          pr(sx+10,st.y-8,st.w-20,4,C.GRAY);
+          // Pot handles
+          pr(sx+2,st.y-2,6,3,C.DGRAY);
+          pr(sx+st.w-8,st.y-2,6,3,C.DGRAY);
+          // Flame effect
+          if(!done){
+            const fh=5+Math.sin(G.gt*18+st.id)*2;
+            const slv=G._stoveLv||0;
+            const fColor=slv>=4?C.TEAL:slv>=2?'#88aaff':C.ORANGE;
+            for(let f=0;f<fh;f++){
+              const a=Math.sin(G.gt*20+st.id*3+f*3)>0?0.8:0.3;
+              cx.globalAlpha=a;
+              pr(sx+22-f*.5,st.y-12-f*2,4+f*0.8,3,fColor);
+            }
+            cx.globalAlpha=1;
+            // Steam effect
+            const stm=Math.sin(G.gt*4+st.id*7)*0.5+0.5;
+            cx.globalAlpha=stm*0.2;
+            r(sx+18+Math.sin(G.gt*6+st.id)*6,st.y-18-Math.sin(G.gt*3+st.id)*3,10,6,C.WHITE);
+            r(sx+30+Math.cos(G.gt*5+st.id)*5,st.y-16-Math.cos(G.gt*4+st.id)*2,8,4,C.WHITE);
+            cx.globalAlpha=1;
+            // Content inside pot
+            const bubble=Math.sin(G.gt*8+st.id*5)>0;
+            if(bubble){
+              pr(sx+14+Math.sin(G.gt*7+st.id)*3,st.y-8,4,2,C.ORANGE);
+              pr(sx+26+Math.cos(G.gt*6+st.id)*2,st.y-9,3,2,C.YELLOW);
+            }
+          }else{
+            // Done: pot glow
+            cx.globalAlpha=0.12;
+            r(sx+8,st.y-2,st.w-16,st.h-4,C.YELLOW);
+            cx.globalAlpha=1;
+          }
+          // Progress bar below pot
+          bx(sx+8,st.y-22,st.w-16,6,C.DBRN,C.BLACK,2);
+          const bc=done?C.YELLOW:C.ORANGE;
+          r(sx+10,st.y-20,(st.w-20)*p,4,bc);
+          // Status text
+          if(done){
+            const hasServer=STAFF.some(s=>s.role==='wang'&&TASKS.some(t=>t.type==='serve'&&t.tid===st.id));
+            if(hasServer)tx('👨‍🍳 送菜中',sx+8,st.y+st.h-8,C.LGRAY,10);
+            else tx('🍲 点击上菜!',sx+10,st.y+st.h-8,C.YELLOW,12);
+          }else{
+            tx(`⏳${Math.floor(p*100)}%`,sx+20,st.y+st.h-8,C.LGRAY,9);
+          }
         }else{
-          pr(sx+20,st.y,st.w-40,2,C.DGRAY);
-          tx('⏳',sx+18,st.y+st.h-8,C.DGRAY,9);
-          const stm=Math.sin(G.gt*5+st.id*3)*0.5+0.5;
-          cx.globalAlpha=stm*0.08;
-          r(sx+20+Math.sin(G.gt*7+st.id)*6,st.y-8+Math.sin(G.gt*4+st.id)*3,12,6,C.WHITE);
-          cx.globalAlpha=1;
+          // Idle stove
+          const has=orderQ.some(x=>!x.as);
+          if(has){
+            const gp=0.2+Math.sin(G.gt*4+st.id)*0.15;
+            cx.globalAlpha=gp;r(sx-2,st.y-2,st.w+4,st.h+4,C.ORANGE);cx.globalAlpha=1;
+            pr(sx+20,st.y,st.w-40,2,C.DRED);
+            tx('🔥 待命',sx+18,st.y+st.h-8,C.YELLOW,10);
+          }else{
+            pr(sx+20,st.y,st.w-40,2,C.DGRAY);
+            tx('⏳',sx+18,st.y+st.h-8,C.DGRAY,9);
+            const stm=Math.sin(G.gt*5+st.id*3)*0.5+0.5;
+            cx.globalAlpha=stm*0.08;
+            r(sx+20+Math.sin(G.gt*7+st.id)*6,st.y-8+Math.sin(G.gt*4+st.id)*3,12,6,C.WHITE);
+            cx.globalAlpha=1;
+          }
         }
       }
     }
@@ -1740,6 +1990,10 @@ function drawHUD(cx2){
   }
   // Road label
   tx('═══ 马路 ═══',W/2-50,STRIP.road+SH-12,C.GRAY,9);
+  // LPC sprite status indicator
+  if(LPC.ready)tx('🧩LPC ✓',W-55,690,C.GREEN,9);
+  else tx('🧩加载中...',W-70,690,C.YELLOW,9);
+  if(lpcDebug)tx('🔍DEBUG',4,690,C.ORANGE,10);
 }
 
 
@@ -1783,6 +2037,7 @@ if(stDiv)stDiv.style.display='none';
 cx.fillStyle='#cc3333';cx.fillRect(10,10,20,20);
 loadGame();restoreStaff();
 checkOffline();
+loadLPC();
 if(_wangHired||_luoHired||_qianHired)tip('📂 进度已恢复！继续经营吧');
 else tip('🔥 老火锅开张！接待3批客人后可招员工');
 requestAnimationFrame(loop);

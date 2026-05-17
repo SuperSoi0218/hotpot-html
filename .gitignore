@@ -1,0 +1,12 @@
+__MACOSX
+*.zip
+*.jpg
+*.url
+tile_samples/
+tile_samples2/
+__MACOSX/
+tiles_furniture/
+preview_*.jpg
+preview_indoor.jpg
+preview_interior.jpg
+preview_tavern.jpg
