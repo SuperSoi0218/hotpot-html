@@ -139,19 +139,24 @@ const SCO=[
 // ============================================================
 // LPC SPRITE LOADING SYSTEM
 // ============================================================
-const LPC={ready:false,debug:false};
+const LPC={ready:false,debug:false,charReady:false};
 const LPC_TILE=32;
 const LPC_SHEETS={
   furniture:{src:'assets/lpc/lpc-tavern/tavern-furniture.png',img:null,cols:32,rows:32},
   cooking:{src:'assets/lpc/lpc-tavern/tavern-cooking.png',img:null,cols:16,rows:16},
   deco:{src:'assets/lpc/lpc-tavern/tavern-deco.png',img:null,cols:16,rows:56},
+  // Character sprites (LPC male walk 3-frame)
+  char:{src:'assets/lpc/characters/male_walk.png',img:null,
+    fw:48,fh:64,cols:3,rows:4},
 };
+// char row mapping: 0=south, 1=west, 2=north, 3=east
+const CHAR_DIR={0:0,1:3,2:1}; // dir -1 (left)=west(1), dir 1 (right)=east(3), default south(0)
 
-let lpcLoaded=0,lpcTotal=3;
+let lpcLoaded=0,lpcTotal=4;
 function loadLPC(cb){
   for(const[k,v]of Object.entries(LPC_SHEETS)){
     const img=new Image();
-    img.onload=()=>{v.img=img;lpcLoaded++;if(lpcLoaded>=lpcTotal){LPC.ready=true;if(cb)cb();}};
+    img.onload=()=>{v.img=img;lpcLoaded++;if(k==='char')LPC.charReady=true;if(lpcLoaded>=lpcTotal){LPC.ready=true;if(cb)cb();}};
     img.onerror=()=>{console.warn('LPC load failed:',v.src);lpcLoaded++;if(lpcLoaded>=lpcTotal&&cb)cb();};
     img.src=v.src;
   }
@@ -229,6 +234,46 @@ const TM={
   flag:[46,0],            // R46-c0: blue/red — flag/banner
 };
 
+// ============================================================
+// LPC CHARACTER DRAWING
+// ============================================================
+// Draw an LPC character frame from the male_walk spritesheet
+// frameIdx: 0,1,2 (walk cycle), dir: 's'|'w'|'e'|'n' (direction)
+function drawLPCChar(frameIdx,dir,dx,dy,scale,tint){
+  if(!LPC.charReady)return;
+  const s=LPC_SHEETS.char;
+  if(!s||!s.img)return;
+  const sc=scale||1;
+  const fw=s.fw,fh=s.fh;
+  // Direction row mapping: 0=south, 1=west, 2=north, 3=east
+  const rowMap={s:0,w:1,n:2,e:3};
+  const row=rowMap[dir]||0;
+  const col=Math.max(0,Math.min(2,Math.floor(frameIdx)%3));
+  // Draw frame (48x64) from the spritesheet
+  cx.imageSmoothingEnabled=false;
+  cx.drawImage(s.img,col*fw,row*fh,fw,fh,dx|0,dy|0,fw*sc|0,fh*sc|0);
+  // Apply tint overlay if specified
+  if(tint){
+    cx.globalAlpha=0.25;
+    cx.fillStyle=tint;
+    cx.fillRect(dx|0,dy|0,fw*sc|0,fh*sc|0);
+    cx.globalAlpha=1;
+  }
+}
+
+// Get appropriate character frame + direction for entity state
+function getCharFrame(e,gt){
+  const fIdx=e.st==='walk'||e.st==='wout'||e.st==='to_door'||e.st==='staff_walk'
+    ? Math.floor(gt*10+e.id)%3 : 1; // frame 1 (center) for idle/sitting
+  // Map entity dir (-1=left, 1=right) to direction string
+  const dir=e.dir>0?'e':'w';
+  // Sitting entities face south
+  if(e.st==='seat'||e.st==='eat'||e.st==='done'||e.st==='angry'||e.st==='staff_work'||e.st==='slacking')
+    return {f:1,d:'s'};
+  return {f:fIdx,d:dir};
+}
+
+// ============================================================
 // Debug: draw ALL tiles from a sheet in a grid at the bottom of canvas
 let lpcDebug=false;
 document.addEventListener('keydown',e=>{
@@ -1728,87 +1773,165 @@ function drawEnts(cx2){
     const ex=e.x-cx2,ey=e.y;
     if(ex<-50||ex>W+30)return;
     const sc=1.5,ch=12*PU*sc;
+    // LPC character sprite size
+    const lpcSc=1.0,lpcH=64*lpcSc,lpcW=48*lpcSc;
+    const lpcYOff=ey-lpcH+4; // bottom-align with current character
     if(e.type==='cust'||e.type==='ped'){
       const sp=e.type==='ped'?CS.ped:(e.custType?e.custType.cs:CS.ped);
       if(!sp)return;
-      // Sitting
-      if(e.st==='seat'||e.st==='eat'||e.st==='done'||e.st==='angry'){
-        const ba=sp[0],sy=ey-ch+16;
-        for(let r2=0;r2<6;r2++)
-          for(let c2=0;c2<8;c2++){
-            const col=ba[r2]?.[c2];
-            if(col)cx.fillRect((ex+c2*PU*sc)|0,(sy+r2*PU*sc)|0,PU*sc,PU*sc);
+      // Determine tint for visual variety
+      const tints=[null,C.ORANGE,C.PURPLE,C.TEAL,C.GOLD,C.PINK];
+      const tintIdx=(e.id||0)%tints.length;
+      const charTint=tints[tintIdx];
+
+      if(LPC.charReady){
+        // === LPC SPRITE CHARACTER ===
+        const cf=getCharFrame(e,G.gt);
+        // Sitting
+        if(e.st==='seat'||e.st==='eat'||e.st==='done'||e.st==='angry'){
+          drawLPCChar(1,'s',ex+8-lpcW/2,ey-lpcH+10,lpcSc,charTint);
+          // Group members stacked behind
+          if(e.groupSize>1){
+            for(let g=1;g<Math.min(e.groupSize,4);g++){
+              const gx=ex+g*6-3;
+              drawLPCChar(1,'s',gx+8-lpcW/2,ey-lpcH+10+g*3,lpcSc-0.1,charTint);
+            }
           }
-        // 多人组：显示其他组员（堆叠在后面的位置）
-        if(e.groupSize>1){
-          const gs=sp[0]; // same sprite
-          for(let g=1;g<Math.min(e.groupSize,4);g++){
-            const gx=ex+g*8-6,gy=ey-ch+16+g*4;
-            for(let r2=0;r2<6;r2++)
-              for(let c2=0;c2<8;c2++){
-                const col=gs[r2]?.[c2];
-                if(col)cx.fillRect((gx+c2*PU*sc)|0,(gy+r2*PU*sc)|0,PU*sc,PU*sc);
-              }
+        }else{
+          // Walking/standing
+          const bobY=Math.floor(Math.sin(G.gt*10+e.id||0)*1.5);
+          drawLPCChar(cf.f,cf.d,ex+8-lpcW/2,ey-lpcH+bobY,lpcSc,charTint);
+          if(e.groupSize&&e.groupSize>1)tx(`${e.groupSize}人`,ex+6,ey-lpcH-4,C.WHITE,8);
+        }
+        // Sitting UI elements
+        if(e.st==='seat'||e.st==='eat'||e.st==='done'||e.st==='angry'){
+          // Labels
+          if(e.st==='seat'&&!e.order&&e.want){
+            tx(e.want.n,ex+2,ey-lpcH-4,C.YELLOW,12);
+            tx('👆 接单',ex+12,ey-lpcH+26,C.WHITE,10);
           }
-        }
-        if(e.st==='seat'&&!e.order&&e.want){
-          tx(e.want.n,ex+2,sy-8,C.YELLOW,12);
-          tx('👆 接单',ex+12,sy+16,C.WHITE,10);
-        }
-        if(e.st==='eat'){
-          const ep=Math.min(1,e.ep);
-          r(ex+4,ey-4,40*ep,3,C.ORANGE);
-          tx('🍜',ex+42,ey-4,C.CREAM,10);
-          // 筷子动画
-          const cp=Math.sin(G.gt*10+e.id)*0.5+0.5;
-          tx('🥢',ex+28+cp*4,ey-ch+38,C.WHITE,10);
-          // 热汽
-          if(Math.random()<0.15){
-            cx.globalAlpha=0.1;
-            r(ex+10+Math.random()*10,ey-ch+20+Math.random()*8,4,3,C.WHITE);
+          if(e.st==='eat'){
+            const ep=Math.min(1,e.ep);
+            r(ex+4,ey-4,40*ep,3,C.ORANGE);
+            tx('🍜',ex+42,ey-4,C.CREAM,10);
+            const cp=Math.sin(G.gt*10+e.id)*0.5+0.5;
+            tx('🥢',ex+28+cp*4,ey-lpcH+32,C.WHITE,10);
+            if(Math.random()<0.15){
+              cx.globalAlpha=0.1;
+              r(ex+10+Math.random()*10,ey-lpcH+14+Math.random()*8,4,3,C.WHITE);
+              cx.globalAlpha=1;
+            }
+          }
+          if(e.st==='done'){
+            const bl=Math.sin(G.gt*4)>0;
+            if(bl){
+              if(STAFF.some(s=>s.role==='qian'&&TASKS.some(t=>t.type==='checkout'&&t.tid===e.id)))
+                tx('💼钱女士结账',ex+2,ey-lpcH-6,C.LGRAY,10);
+              else tx('💰 结账',ex+8,ey-lpcH-6,C.GOLD,14);
+            }
+          }
+          if(e.custType&&e.maxPat>0&&(e.st==='seat'||e.st==='angry')){
+            const pct=Math.max(0,Math.min(1,e.pat/e.maxPat));
+            const barW=36,barY=ey-lpcH-8;
+            r(ex+4,barY,barW,3,'rgba(0,0,0,.5)');
+            const barC=pct>0.5?C.GREEN:pct>0.25?C.GOLD:C.RED;
+            if(pct>0)r(ex+4,barY,barW*pct,3,barC);
+            tx(e.custType.label,ex+4,barY-8,C.WHITE,8);
+            if(pct<0.3&&e.st==='seat'&&!e.order){
+              const fl=Math.sin(G.gt*6)>0;
+              if(fl)tx('⚠️',ex+30,barY-9,C.RED,12);
+            }
+          }
+          if(e.st==='angry'){
+            const fl=Math.sin(G.gt*8)>0;
+            if(fl)tx('💢',ex+24,ey-lpcH-12,C.RED,16);
+            cx.globalAlpha=0.3;r(ex-4,ey-lpcH-4,56,44,C.RED);
+            cx.globalAlpha=1;
+            tx('😤 等不及走了!',ex-4,ey-lpcH-12,C.RED,10);
+          }
+        }else{
+          // Walking label
+          if(e.groupSize&&e.groupSize>1)tx(`${e.groupSize}人`,ex+6,ey-lpcH-8,C.WHITE,8);
+          if(CAM.x>0||e.x>CAM.x+60){
+            cx.globalAlpha=0.3;
+            tx(e.dir>0?'→':'←',ex+10,ey-lpcH-6,C.LGRAY,9);
             cx.globalAlpha=1;
           }
         }
-        if(e.st==='done'){
-          const bl=Math.sin(G.gt*4)>0;
-          if(bl){
-            if(STAFF.some(s=>s.role==='qian'&&TASKS.some(t=>t.type==='checkout'&&t.tid===e.id)))
-              tx('💼钱女士结账',ex+2,sy-8,C.LGRAY,10);
-            else tx('💰 结账',ex+8,sy-8,C.GOLD,14);
+      }else{
+        // === PROCEDURAL FALLBACK ===
+        // Sitting
+        if(e.st==='seat'||e.st==='eat'||e.st==='done'||e.st==='angry'){
+          const ba=sp[0],sy=ey-ch+16;
+          for(let r2=0;r2<6;r2++)
+            for(let c2=0;c2<8;c2++){
+              const col=ba[r2]?.[c2];
+              if(col)cx.fillRect((ex+c2*PU*sc)|0,(sy+r2*PU*sc)|0,PU*sc,PU*sc);
+            }
+          // 多人组
+          if(e.groupSize>1){
+            const gs=sp[0];
+            for(let g=1;g<Math.min(e.groupSize,4);g++){
+              const gx=ex+g*8-6,gy=ey-ch+16+g*4;
+              for(let r2=0;r2<6;r2++)
+                for(let c2=0;c2<8;c2++){
+                  const col=gs[r2]?.[c2];
+                  if(col)cx.fillRect((gx+c2*PU*sc)|0,(gy+r2*PU*sc)|0,PU*sc,PU*sc);
+                }
+            }
           }
-        }
-        // 耐心条 + 类型标签 (坐着的顾客)
-        if(e.custType&&e.maxPat>0&&(e.st==='seat'||e.st==='angry')){
-          const pct=Math.max(0,Math.min(1,e.pat/e.maxPat));
-          const barW=36,barY=sy-6;
-          r(ex+4,barY,barW,3,'rgba(0,0,0,.5)');
-          const barC=pct>0.5?C.GREEN:pct>0.25?C.GOLD:C.RED;
-          if(pct>0)r(ex+4,barY,barW*pct,3,barC);
-          // 类型名
-          tx(e.custType.label,ex+4,barY-8,C.WHITE,8);
-          // 耐心低时闪烁提示
-          if(pct<0.3&&e.st==='seat'&&!e.order){
-            const fl=Math.sin(G.gt*6)>0;
-            if(fl)tx('⚠️',ex+30,barY-9,C.RED,12);
+          if(e.st==='seat'&&!e.order&&e.want){
+            tx(e.want.n,ex+2,sy-8,C.YELLOW,12);
+            tx('👆 接单',ex+12,sy+16,C.WHITE,10);
           }
-        }
-        // 愤怒状态
-        if(e.st==='angry'){
-          const fl=Math.sin(G.gt*8)>0;
-          if(fl){tx('💢',ex+24,sy-14,C.RED,16);}
-          cx.globalAlpha=0.3;pr(ex,ey-16,48,28,C.RED);cx.globalAlpha=1;
-          tx('😤 等不及走了!',ex-4,sy-10,C.RED,10);
-        }
-      }else if(e.st==='walk'||e.st==='wout'||e.st==='to_door'){
-        const f=sp[e.f],by=Math.floor(Math.sin(G.gt*10+e.id||0)*1.5);
-        dr(f,ex,ey-ch+by,sc);
-        // 团队人数标签
-        if(e.groupSize&&e.groupSize>1)tx(`${e.groupSize}人`,ex+6,ey-ch+by-8,C.WHITE,8);
-        if(CAM.x>0||e.x>CAM.x+60){
-          // Pedestrian heading indicator
-          cx.globalAlpha=0.3;
-          tx(e.dir>0?'→':'←',ex+10,ey-ch-6,C.LGRAY,9);
-          cx.globalAlpha=1;
+          if(e.st==='eat'){
+            const ep=Math.min(1,e.ep);
+            r(ex+4,ey-4,40*ep,3,C.ORANGE);
+            tx('🍜',ex+42,ey-4,C.CREAM,10);
+            const cp=Math.sin(G.gt*10+e.id)*0.5+0.5;
+            tx('🥢',ex+28+cp*4,ey-ch+38,C.WHITE,10);
+            if(Math.random()<0.15){
+              cx.globalAlpha=0.1;
+              r(ex+10+Math.random()*10,ey-ch+20+Math.random()*8,4,3,C.WHITE);
+              cx.globalAlpha=1;
+            }
+          }
+          if(e.st==='done'){
+            const bl=Math.sin(G.gt*4)>0;
+            if(bl){
+              if(STAFF.some(s=>s.role==='qian'&&TASKS.some(t=>t.type==='checkout'&&t.tid===e.id)))
+                tx('💼钱女士结账',ex+2,sy-8,C.LGRAY,10);
+              else tx('💰 结账',ex+8,sy-8,C.GOLD,14);
+            }
+          }
+          // 耐心条
+          if(e.custType&&e.maxPat>0&&(e.st==='seat'||e.st==='angry')){
+            const pct=Math.max(0,Math.min(1,e.pat/e.maxPat));
+            const barW=36,barY=sy-6;
+            r(ex+4,barY,barW,3,'rgba(0,0,0,.5)');
+            const barC=pct>0.5?C.GREEN:pct>0.25?C.GOLD:C.RED;
+            if(pct>0)r(ex+4,barY,barW*pct,3,barC);
+            tx(e.custType.label,ex+4,barY-8,C.WHITE,8);
+            if(pct<0.3&&e.st==='seat'&&!e.order){
+              const fl=Math.sin(G.gt*6)>0;
+              if(fl)tx('⚠️',ex+30,barY-9,C.RED,12);
+            }
+          }
+          if(e.st==='angry'){
+            const fl=Math.sin(G.gt*8)>0;
+            if(fl){tx('💢',ex+24,sy-14,C.RED,16);}
+            cx.globalAlpha=0.3;pr(ex,ey-16,48,28,C.RED);cx.globalAlpha=1;
+            tx('😤 等不及走了!',ex-4,sy-10,C.RED,10);
+          }
+        }else if(e.st==='walk'||e.st==='wout'||e.st==='to_door'){
+          const f=sp[e.f],by=Math.floor(Math.sin(G.gt*10+e.id||0)*1.5);
+          dr(f,ex,ey-ch+by,sc);
+          if(e.groupSize&&e.groupSize>1)tx(`${e.groupSize}人`,ex+6,ey-ch+by-8,C.WHITE,8);
+          if(CAM.x>0||e.x>CAM.x+60){
+            cx.globalAlpha=0.3;
+            tx(e.dir>0?'→':'←',ex+10,ey-ch-6,C.LGRAY,9);
+            cx.globalAlpha=1;
+          }
         }
       }
       // Shadow
@@ -1816,42 +1939,71 @@ function drawEnts(cx2){
     }else if(e.type==='staff'){
       const role=SROLES[e.role];if(!role)return;
       const sp=role.cs,sc2=1.5,ch2=12*PU*sc2;
-      if(e.st==='staff_idle'||e.st==='staff_walk'){
-        const f=sp[e.f],by=Math.floor(Math.sin(G.gt*10+e.id||0)*1.5);
-        dr(f,ex,ey-ch2+by,sc2);
-        if(e.st==='staff_idle')tx('⏳',ex-4,ey-ch2-6,C.LGRAY,9);
-      }else if(e.st==='staff_work'){
-        const ba=sp[0],sy2=ey-ch2+16;
-        for(let r2=0;r2<6;r2++)
-          for(let c2=0;c2<8;c2++){
-            const col=ba[r2]?.[c2];
-            if(col)cx.fillRect((ex+c2*PU*sc2)|0,(sy2+r2*PU*sc2)|0,PU*sc2,PU*sc2);
+
+      if(LPC.charReady){
+        // === LPC SPRITE STAFF ===
+        const sc3=1.0;
+        const ch3=64*sc3;
+        // Staff colors for each role
+        const staffTints={wang:C.RED,luo:C.BLUE,qian:C.GOLD,xiao:C.GREEN,xue:C.PURPLE,achang:C.ORANGE,yuge:C.TEAL};
+        const tint=staffTints[e.role]||C.WHITE;
+        if(e.st==='staff_idle'||e.st==='staff_walk'){
+          const cf=getCharFrame(e,G.gt);
+          const bobY=Math.floor(Math.sin(G.gt*10+e.id||0)*1.5);
+          drawLPCChar(cf.f,cf.d,ex+8-lpcW/2,ey-ch3+bobY,sc3,tint);
+          if(e.st==='staff_idle')tx('⏳',ex-4,ey-ch3-6,C.LGRAY,9);
+        }else if(e.st==='staff_work'||e.st==='slacking'){
+          drawLPCChar(1,'s',ex+8-lpcW/2,ey-ch3+10,sc3,tint);
+          // Work progress bar
+          const pct=Math.min(1,(e._workTimer||0)/(e.task?e.taskDur[e.task.type]||3:3));
+          r(ex-4,ey-6,20*pct,3,C.YELLOW);
+          if(e.task){
+            const icons={order:'📋',serve:'🍲',clean:'🧹',checkout:'💰'};
+            tx(icons[e.task.type]||'⚙',ex,ey-ch3-4,C.WHITE,12);
           }
-        // 工作进度条
-        const pct=Math.min(1,(e._workTimer||0)/(e.task?e.taskDur[e.task.type]||3:3));
-        r(ex-4,ey-6,20*pct,3,C.YELLOW);
-        // 任务图标
-        if(e.task){
-          const icons={order:'📋',serve:'🍲',clean:'🧹',checkout:'💰'};
-          tx(icons[e.task.type]||'⚙',ex,ey-18,C.WHITE,12);
+          // Slacking
+          if(e.st==='slacking'){
+            const zz=Math.sin(G.gt*5)>0?'💤':'😴';
+            tx(zz,ex+12,ey-ch3-8,C.LGRAY,14);
+            const rem=Math.max(0,(e._slackTimer||0)/8);
+            r(ex-4,ey-6,20*rem,3,'rgba(200,200,100,.4)');
+          }
         }
-      }else if(e.st==='slacking'){
-        // 摸鱼状态：原地站立 + ZZZ气泡
-        const ba=sp[0],sy2=ey-ch2+16;
-        for(let r2=0;r2<6;r2++)
-          for(let c2=0;c2<8;c2++){
-            const col=ba[r2]?.[c2];
-            if(col)cx.fillRect((ex+c2*PU*sc2)|0,(sy2+r2*PU*sc2)|0,PU*sc2,PU*sc2);
+        tx(role.label,ex-6,ey-ch3-10,C.WHITE,9);
+      }else{
+        // === PROCEDURAL STAFF FALLBACK ===
+        if(e.st==='staff_idle'||e.st==='staff_walk'){
+          const f=sp[e.f],by=Math.floor(Math.sin(G.gt*10+e.id||0)*1.5);
+          dr(f,ex,ey-ch2+by,sc2);
+          if(e.st==='staff_idle')tx('⏳',ex-4,ey-ch2-6,C.LGRAY,9);
+        }else if(e.st==='staff_work'){
+          const ba=sp[0],sy2=ey-ch2+16;
+          for(let r2=0;r2<6;r2++)
+            for(let c2=0;c2<8;c2++){
+              const col=ba[r2]?.[c2];
+              if(col)cx.fillRect((ex+c2*PU*sc2)|0,(sy2+r2*PU*sc2)|0,PU*sc2,PU*sc2);
+            }
+          const pct=Math.min(1,(e._workTimer||0)/(e.task?e.taskDur[e.task.type]||3:3));
+          r(ex-4,ey-6,20*pct,3,C.YELLOW);
+          if(e.task){
+            const icons={order:'📋',serve:'🍲',clean:'🧹',checkout:'💰'};
+            tx(icons[e.task.type]||'⚙',ex,ey-18,C.WHITE,12);
           }
-        // ZZZ闪烁
-        const zz=Math.sin(G.gt*5)>0?'💤':'😴';
-        tx(zz,ex+12,ey-ch2-8,C.LGRAY,14);
-        // 摸鱼进度条（剩余时间）
-        const rem=Math.max(0,(e._slackTimer||0)/8);
-        r(ex-4,ey-6,20*rem,3,'rgba(200,200,100,.4)');
+        }else if(e.st==='slacking'){
+          const ba=sp[0],sy2=ey-ch2+16;
+          for(let r2=0;r2<6;r2++)
+            for(let c2=0;c2<8;c2++){
+              const col=ba[r2]?.[c2];
+              if(col)cx.fillRect((ex+c2*PU*sc2)|0,(sy2+r2*PU*sc2)|0,PU*sc2,PU*sc2);
+            }
+          const zz=Math.sin(G.gt*5)>0?'💤':'😴';
+          tx(zz,ex+12,ey-ch2-8,C.LGRAY,14);
+          const rem=Math.max(0,(e._slackTimer||0)/8);
+          r(ex-4,ey-6,20*rem,3,'rgba(200,200,100,.4)');
+        }
+        // 头顶角色标签
+        tx(role.label,ex-6,ey-ch2-10,C.WHITE,9);
       }
-      // 头顶角色标签
-      tx(role.label,ex-6,ey-ch2-10,C.WHITE,9);
       // Shadow
       cx.globalAlpha=0.15;pr(ex+4,ey-2,16,4,C.BLACK);cx.globalAlpha=1;
     }else if(e.type==='food_fx'){
@@ -1994,6 +2146,7 @@ function drawHUD(cx2){
   if(LPC.ready)tx('🧩LPC ✓',W-55,690,C.GREEN,9);
   else tx('🧩加载中...',W-70,690,C.YELLOW,9);
   if(lpcDebug)tx('🔍DEBUG',4,690,C.ORANGE,10);
+  if(LPC.charReady)tx('👤✓',W-18,690,C.CYAN,8);
 }
 
 
