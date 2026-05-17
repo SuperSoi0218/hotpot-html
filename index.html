@@ -40,9 +40,9 @@ const TABLES=[
   {id:6,cx:540, y:STRIP.mid+85,  w:74,h:54, state:'clean',cust:null},
 ];
 const STOVES=[
-  {id:1,x:460, y:STRIP.bot+30, w:64,h:48, busy:false,progress:0,maxP:5,orderId:null},
-  {id:2,x:560, y:STRIP.bot+30, w:64,h:48, busy:false,progress:0,maxP:5,orderId:null},
-  {id:3,x:660, y:STRIP.bot+30, w:64,h:48, busy:false,progress:0,maxP:5,orderId:null},
+  {id:1,x:460, y:STRIP.bot+30, w:64,h:48, busy:false,progress:0,maxP:5,orderId:null,_tasked:false},
+  {id:2,x:560, y:STRIP.bot+30, w:64,h:48, busy:false,progress:0,maxP:5,orderId:null,_tasked:false},
+  {id:3,x:660, y:STRIP.bot+30, w:64,h:48, busy:false,progress:0,maxP:5,orderId:null,_tasked:false},
 ];
 
 // ============================================================
@@ -95,14 +95,7 @@ function mkChar(hair,skin,shirt,pants,shoes){
   walk[11]=[_,_,F,F,_,F,F,_];
   return[base,walk];
 }
-const CVAR=[
-  [C.BLACK,C.SKIN,C.RED,C.DGRAY,C.BLACK],[C.BROWN,C.SKIN2,C.BLUE,C.DGRAY,C.BLACK],
-  [C.GOLD,C.SKIN3,C.GREEN,C.BROWN,C.BLACK],[C.DGRAY,C.SKIN,C.ORANGE,C.DGRAY,C.BLACK],
-  [C.DRED,C.SKIN2,C.PURPLE,C.BROWN,C.BLACK],[C.BLACK,C.SKIN,C.TEAL,C.DGRAY,C.BLACK],
-  [C.BROWN,C.SKIN3,C.PINK,C.BROWN,C.BLACK],[C.GOLD,C.SKIN2,C.GRAY,C.DGRAY,C.BLACK],
-];
 const CS={};
-CVAR.forEach((v,i)=>{CS['c'+i]=mkChar(...v)});
 CS.ped=mkChar(C.DGRAY,C.SKIN2,C.GRAY,C.DGRAY,C.BLACK);
 
 // ============================================================
@@ -134,7 +127,8 @@ const SCO=[
 // ============================================================
 // STATE
 // ============================================================
-const G={gold:300,level:1,exp:0,served:0,earned:0,gt:0,_ct:0};
+const G={gold:300,diamond:0,level:1,exp:0,served:0,earned:0,gt:0,_ct:0,
+  _epmTimer:0,_epmStart:0,_epmRate:0};
 let E=[],orderQ=[],oid=0;
 
 // ============================================================
@@ -161,14 +155,80 @@ const ENT={
         }
         break;
       case'seat':
+        // 耐心值消耗：未点单消耗快(×1.0)，已点单消耗慢(×0.4)
+        if(e.pat>0){
+          const rate=e.order?0.4:1.0;
+          e.pat-=dt*rate;
+          if(e.pat<=0){
+            e.st='angry';e._angryTimer=0;
+            if(e.order)orderQ=orderQ.filter(x=>x.id!==e.order.id);
+            const tb=TABLES.find(t=>t.id===e.tid);
+            if(tb){tb.state='dirty';tb.cust=null;e.tid=null;
+              addTask('clean',tb.id,tb.cx,tb.y+tb.h/2);}
+            tip('😤 顾客等不及走了！');
+          }
+        }
         break;
       case'eat':
-        e.ep+=dt/6;if(e.ep>=1){e.st='done';tip('💰 点击顾客结账');}
+        e.ep+=dt/6;if(e.ep>=1){e.st='done';
+          addTask('checkout',e.id,e.x,e.y-10);
+        if(!STAFF.some(s=>s.role==='qian'))tip('💰 点击顾客结账');}
         break;
       case'done':break;
+      case'angry':
+        e._angryTimer=(e._angryTimer||0)+dt;
+        if(e._angryTimer>2){
+          e.st='wout';
+          e.wp=[{x:DOOR.x,y:DOOR.y+DOOR.h-4},{x:DOOR.x,y:ROAD_Y},
+            {x:e.x<DOOR.x?CAM.x-30:CAM.x+W+30,y:ROAD_Y}];
+          e.wpi=0;e.tx=e.wp[0].x;e.ty=e.wp[0].y;e.dir=e.tx>e.x?1:-1;
+        }
+        break;
       case'flying':
         e._a=(e._a||0)+dt;if(e._a>=e.life)e.st='left';break;
       case'left':break;
+      // 员工状态
+      case'staff_idle':{
+        const t2=TASKS.find(t=>!t.assigned&&e.canDo(t.type));
+        if(t2){
+          t2.assigned=true;t2.staff=e;e.task=t2;e.st='staff_walk';
+          e.tx=t2.x;e.ty=t2.y;
+        }
+        break;
+      }
+      case'staff_walk':{
+        const dx=e.tx-e.x,dy=e.ty-e.y,dist=Math.sqrt(dx*dx+dy*dy);
+        if(isNaN(dist)||!isFinite(dist)){e.st='staff_idle';break;}
+        if(dist<4){
+          e.st='staff_work';e._workTimer=0;
+        }else{
+          const mgrBonus=STAFF.some(s=>s.role==='yuge')?1.2:1;
+          const s=e.spd*mgrBonus*dt;e.x+=dx/dist*s;e.y+=dy/dist*s;
+          e.dir=dx>0?1:-1;e.ft+=dt;
+          if(e.ft>0.2){e.f=1-e.f;e.ft=0;}
+        }
+        break;
+      }
+      case'staff_work':{
+        e._workTimer=(e._workTimer||0)+dt;
+        const dur=e.task?e.taskDur[e.task.type]||3:3;
+        if(e._workTimer>=dur){
+          doStaffTask(e);
+          // 摸鱼判定：完成3个任务后有15%概率进入摸鱼
+          e._taskCount=(e._taskCount||0)+1;
+          if(e._taskCount>=3&&Math.random()<0.15){
+            e.st='slacking';e._slackTimer=5+Math.random()*3;e._taskCount=0;e.task=null;
+          }else{
+            e.st='staff_idle';e.task=null;
+          }
+        }
+        break;
+      }
+      case'slacking':{
+        e._slackTimer=(e._slackTimer||0)-dt;
+        if(e._slackTimer<=0){e.st='staff_idle';e._slackTimer=0;e._taskCount=0;}
+        break;
+      }
     }
   },
   _mv(e,dt,tx,ty){
@@ -178,10 +238,12 @@ const ENT={
       e.wpi++;
       if(e.wpi>=e.wp.length){
         if(e.type==='cust'){
-          if(e.st==='walk'){e.st='seat';tip('👤 顾客入座了！点击接单');}
+          if(e.st==='walk'){e.st='seat';tip('👤 顾客入座了！点击接单');
+            addTask('order',e.id,e.x,e.y);}
           else if(e.st==='wout'){e.st='left';
             const tb=TABLES.find(t=>t.id===e.tid);
-            if(tb){tb.state='dirty';tb.cust=null;}
+            if(tb){tb.state='dirty';tb.cust=null;
+              addTask('clean',tb.id,tb.cx,tb.y+tb.h/2);}
           }
         }else e.st='left';
       }else{e.tx=e.wp[e.wpi].x;e.ty=e.wp[e.wpi].y;e.dir=e.tx>e.x?1:-1;}
@@ -194,6 +256,148 @@ const ENT={
 };
 
 // ============================================================
+// TASK QUEUE + STAFF SYSTEM
+// ============================================================
+const TASKS=[];
+let taskId=0;
+const TPRIO={checkout:0,serve:1,clean:2,order:3}; // 数值越低越紧急
+
+function addTask(type,targetId,x,y){
+  if(TASKS.some(t=>t.type===type&&t.tid===targetId))return null;
+  const t={id:++taskId,type,tid:targetId,x,y,prio:TPRIO[type]||9,assigned:false,staff:null};
+  TASKS.push(t);
+  TASKS.sort((a,b)=>a.prio-b.prio);
+  return t;
+}
+function removeTask(fn){
+  for(let i=TASKS.length-1;i>=0;i--){
+    if(fn(TASKS[i])){
+      if(TASKS[i].staff){TASKS[i].staff.task=null;TASKS[i].staff.st='staff_idle';}
+      TASKS.splice(i,1);
+    }
+  }
+}
+
+// 员工角色定义
+const SROLES={
+  wang:{
+    label:'👨‍🍳小王',cost:100,spd:55,
+    canDo:t=>t.type==='order'||t.type==='serve'||t.type==='clean',
+    taskDur:{order:0.3,serve:0.8,clean:3},
+    chars:[C.WHITE,C.SKIN2,C.BLUE,C.DGRAY,C.BLACK],
+  },
+  qian:{
+    label:'💼钱女士',cost:150,spd:45,
+    canDo:t=>t.type==='checkout',
+    taskDur:{checkout:0.5},
+    chars:[C.BLACK,C.SKIN,C.GREEN,C.DGRAY,C.BLACK],
+  },
+  luo:{
+    label:'🧹罗阿姨',cost:80,spd:40,
+    canDo:t=>t.type==='clean',
+    taskDur:{clean:2.5},
+    chars:[C.DGRAY,C.SKIN3,C.BROWN,C.DGRAY,C.BLACK],
+  },
+  xiao:{
+    label:'👧晓晓',cost:250,spd:60,
+    canDo:t=>t.type==='order'||t.type==='serve'||t.type==='clean'||t.type==='checkout',
+    taskDur:{order:0.35,serve:1.0,clean:3.5,checkout:0.8},
+    chars:[C.BROWN,C.SKIN2,C.PINK,C.DGRAY,C.BLACK],unlockLv:4,
+  },
+  xue:{
+    label:'❄️雪雪',cost:280,spd:50,
+    canDo:t=>t.type==='serve',
+    taskDur:{serve:0.25},
+    chars:[C.WHITE,C.SKIN,C.TEAL,C.BLUE,C.BLACK],unlockLv:4,
+  },
+  achang:{
+    label:'🧹阿昌',cost:200,spd:45,
+    canDo:t=>t.type==='clean',
+    taskDur:{clean:1.2},
+    chars:[C.BLACK,C.SKIN3,C.DGREEN,C.DGRAY,C.BLACK],unlockLv:5,
+  },
+  yuge:{
+    label:'👔于哥',cost:600,spd:35,
+    canDo:t=>true,
+    taskDur:{order:0.2,serve:0.5,clean:2.0,checkout:0.3},
+    chars:[C.BLACK,C.SKIN,C.PURPLE,C.GRAY,C.BLACK],unlockLv:7,
+  },
+};
+Object.values(SROLES).forEach(r=>{r.cs=mkChar(...r.chars)});
+
+let STAFF=[],_hireBtn=null,_upgradeBtn=null,_researchBtn=null;
+let _wangHired=false,_qianHired=false,_luoHired=false,_xiaoHired=false,_xueHired=false,_achangHired=false,_yugeHired=false;
+
+function hireStaff(role){
+  const r=SROLES[role];
+  if(!r||G.gold<r.cost)return false;
+  G.gold-=r.cost;
+  const e=ENT.create('staff',DOOR.x,DOOR.y+DOOR.h-8,{
+    st:'staff_idle',spd:r.spd,role,task:null,
+    canDo:r.canDo,taskDur:{...r.taskDur},
+    _taskCount:0,
+  });
+  e.dir=1;STAFF.push(e);E.push(e);
+  if(role==='wang')_wangHired=true;
+  if(role==='qian')_qianHired=true;
+  if(role==='luo')_luoHired=true;
+  if(role==='xiao')_xiaoHired=true;
+  if(role==='xue')_xueHired=true;
+  if(role==='achang')_achangHired=true;
+  if(role==='yuge')_yugeHired=true;
+  const tips={wang:'自动接单/上菜/收拾',qian:'自动结账',luo:'专职清洁',
+    xiao:'全场通才跑得快',xue:'闪电上菜',achang:'快速清洁',yuge:'全员提速20%'};
+  if(tips[role])tip(`✅ ${r.label} 已入职！${tips[role]}`);
+  else tip(`✅ ${r.label} 已入职！`);
+  checkRankUp();
+  return true;
+}
+
+function fxBurst(x,y,color,count){
+  for(let i=0;i<count;i++){
+    const a=Math.random()*Math.PI*2,d=20+Math.random()*30;
+    E.push(ENT.create('food_fx',x,y,{
+      tx:x+Math.cos(a)*d,ty:y+Math.sin(a)*d-10,
+      st:'flying',life:0.4+Math.random()*0.3,_a:0,_fxColor:color||C.GOLD,
+    }));
+  }
+}
+
+function doStaffTask(staff){
+  const task=staff.task;if(!task)return;
+  switch(task.type){
+    case'order':{
+      const cu=E.find(e=>e.id===task.tid);
+      if(cu&&cu.st==='seat'&&!cu.order){
+        const item=cu.want;
+        const o={id:++oid,cid:cu.id,di:item.id,dn:item.n,pp:item.p,ct:item.ct,as:false,sid:null};
+        orderQ.push(o);cu.order=o;
+        fxBurst(cu.x,cu.y-10,C.YELLOW,4);
+      }
+      break;
+    }
+    case'serve':{
+      const st=STOVES.find(s=>s.id===task.tid);
+      if(st&&st.busy&&st.progress>=st.maxP)serveFood(st);
+      break;
+    }
+    case'clean':{
+      const tb=TABLES.find(t=>t.id===task.tid);
+      if(tb&&tb.state==='dirty'){tb.state='clean';tb._ct=0;
+        fxBurst(tb.cx,tb.y,C.GREEN,5);}
+      break;
+    }
+    case'checkout':{
+      const cu=E.find(e=>e.id===task.tid);
+      if(cu&&cu.st==='done'){checkout(cu);
+        fxBurst(cu.x,cu.y-10,C.GOLD,6);}
+      break;
+    }
+  }
+  removeTask(t=>t.id===task.id);
+}
+
+// ============================================================
 // SPAWN
 // ============================================================
 const ROAD_Y=STRIP.road+68;
@@ -203,11 +407,14 @@ function spawnCust(){
   if(!fr)return;
   const fromLeft=Math.random()>0.5;
   const sx=fromLeft?CAM.x-30:CAM.x+W+30;
-  const item=MITEMS[Math.floor(Math.random()*MITEMS.length)];
+  const availItems=MITEMS.filter(it=>!it.need||G._researched.includes(it.need));
+  const item=availItems[Math.floor(Math.random()*availItems.length)];
+  const type=pickCustType();
   const e=ENT.create('cust',sx,ROAD_Y,{
-    st:'walk',tid:fr.id,spd:45+Math.random()*20,va:Math.floor(Math.random()*8),
-    pat:30+Math.random()*10,sat:100,want:item,
+    st:'walk',tid:fr.id,spd:(40+Math.random()*15)*type.spdMod,
+    pat:type.patBase+Math.random()*8-4,sat:100,want:item,custType:type,
   });
+  e.maxPat=e.pat;
   // wp0: walk to door_x at road level
   // wp1: transition up through door
   // wp2: walk to table
@@ -242,8 +449,10 @@ function serveFood(st){
     return;
   }
   cu.st='eat';cu.ep=0;
-  st.busy=false;st.progress=0;st.orderId=null;
+  st.busy=false;st.progress=0;st.orderId=null;st._tasked=false;
   orderQ=orderQ.filter(x=>x.id!==o.id);
+  // 清理可能存在的 serve 任务
+  removeTask(t=>t.type==='serve'&&t.tid===st.id);
   tip('🍲 上菜完成！');
   const fx=ENT.create('food_fx',st.x+32,st.y-14,{
     tx:cu.x,ty:cu.y-8,st:'flying',life:0.5,_a:0,
@@ -252,19 +461,203 @@ function serveFood(st){
 }
 
 const MITEMS=[
-  {id:1,n:'🥩 肥牛卷',p:68,ct:4},{id:2,n:'🦐 虾滑',p:88,ct:5},
-  {id:3,n:'🥬 蔬菜拼盘',p:48,ct:3},{id:4,n:'🍄 菌菇拼盘',p:58,ct:4},
-  {id:5,n:'🍜 手工面条',p:38,ct:3},{id:6,n:'🧆 手工肉丸',p:78,ct:5},
+  {id:1,n:'🥩 肥牛卷',p:68,ct:4},
+  {id:2,n:'🦐 虾滑',p:88,ct:5},
+  {id:3,n:'🥬 蔬菜拼盘',p:48,ct:3},
+  {id:4,n:'🍄 菌菇拼盘',p:58,ct:4},
+  {id:5,n:'🍜 手工面条',p:38,ct:3},
+  {id:6,n:'🧆 手工肉丸',p:78,ct:5},
+  // 以下菜品需要研发解锁
+  {id:7,n:'🦀 海鲜拼盘',p:128,ct:6,need:'seafood'},
+  {id:8,n:'🥩 和牛套餐',p:188,ct:7,need:'premium'},
+  {id:9,n:'🧋 酸梅汤',p:28,ct:2,need:'drink'},
+  {id:10,n:'🍧 红糖冰粉',p:38,ct:3,need:'dessert'},
 ];
 
 // ============================================================
-// LEVEL
+// DISH RESEARCH (菜品研发)
 // ============================================================
-const LV=[0,100,150,220,320,450,600,800,1050,1350,1700];
-function expN(l){return LV[l]||100+l*80}
-function lvlUp(){
-  const n=expN(G.level);
-  if(G.exp>=n&&G.level<20){G.exp-=n;G.level++;G.diamond=Math.floor(G.level/2);tip(`🎉 Lv.${G.level}!`)}
+G._researching=null;G._researched=[];G._priceMult=1.0;
+const RESEARCH=[
+  {id:'broth',name:'骨汤升级',cost:200,time:30,mult:1.15,lv:1,desc:'客单+15%'},
+  {id:'beef',name:'进口肥牛',cost:400,time:45,mult:1.2,lv:3,desc:'客单+20%'},
+  {id:'spicy',name:'麻辣锅底',cost:600,time:60,mult:1.3,lv:4,desc:'客单+30%'},
+  {id:'drink',name:'鲜榨饮品',cost:500,time:50,mult:1.2,lv:5,desc:'客单+20%'},
+  {id:'seafood',name:'海鲜盛宴',cost:1000,time:90,mult:1.4,lv:6,desc:'客单+40%'},
+  {id:'dessert',name:'精致甜品',cost:800,time:70,mult:1.3,lv:7,desc:'客单+30%'},
+  {id:'premium',name:'至尊套餐',cost:2000,time:120,mult:1.6,lv:10,desc:'客单+60%'},
+];
+
+function startResearch(){
+  const avail=RESEARCH.filter(r=>G.level>=r.lv&&!G._researched.includes(r.id));
+  if(avail.length===0){tip('🔬 所有菜品已研发完成！');return false;}
+  // 按等级排序，优先研发等级要求低的
+  avail.sort((a,b)=>a.lv-b.lv);
+  const item=avail[0];
+  if(G.gold<item.cost){tip(`💰 研发${item.name}需 ${item.cost}金`);return false;}
+  G.gold-=item.cost;
+  G._researching={id:item.id,name:item.name,progress:0,maxTime:item.time,mult:item.mult};
+  tip(`🔬 开始研发 ${item.name}（${item.desc}）`);
+  return true;
+}
+
+// ============================================================
+// SAVE / LOAD
+// ============================================================
+function saveGame(){
+  try{
+    const save={
+      gold:G.gold,served:G.served,earned:G.earned,level:G.level,
+      diamond:G.diamond,_stoveLv:G._stoveLv,
+      researched:G._researched,_priceMult:G._priceMult,
+      wang:_wangHired,qian:_qianHired,luo:_luoHired,
+      xiao:_xiaoHired,xue:_xueHired,achang:_achangHired,yuge:_yugeHired,
+    };
+    localStorage.setItem('hp_save',JSON.stringify(save));
+  }catch(e){}
+}
+function loadGame(){
+  try{
+    const raw=localStorage.getItem('hp_save');
+    if(!raw)return;
+    const s=JSON.parse(raw);
+    G.gold=s.gold||300;G.served=s.served||0;G.earned=s.earned||0;
+    G.level=s.level||1;G.diamond=s.diamond||0;
+    G._stoveLv=s._stoveLv||0;G._researched=s.researched||[];
+    G._priceMult=s._priceMult||1.0;
+    _wangHired=s.wang||false;_qianHired=s.qian||false;_luoHired=s.luo||false;
+    _xiaoHired=s.xiao||false;_xueHired=s.xue||false;
+    _achangHired=s.achang||false;_yugeHired=s.yuge||false;
+  }catch(e){}
+}
+function restoreStaff(){
+  const roles=['wang','luo','qian','xiao','xue','achang','yuge'];
+  const flags={wang:_wangHired,luo:_luoHired,qian:_qianHired,
+    xiao:_xiaoHired,xue:_xueHired,achang:_achangHired,yuge:_yugeHired};
+  roles.forEach(key=>{
+    if(flags[key]&&!STAFF.some(s=>s.role===key)){
+      const r=SROLES[key];if(!r)return;
+      const e=ENT.create('staff',DOOR.x,DOOR.y+DOOR.h-8,{
+        st:'staff_idle',spd:r.spd,role:key,task:null,
+        canDo:r.canDo,taskDur:{...r.taskDur},_taskCount:0,
+      });
+      e.dir=1;STAFF.push(e);E.push(e);
+    }
+  });
+}
+
+// ============================================================
+// OFFLINE EARNINGS
+// ============================================================
+function checkOffline(){
+  try{
+    const last=localStorage.getItem('hp_last');
+    const now=Date.now();
+    if(last){
+      const secs=(now-parseInt(last))/1000;
+      if(secs>60){
+        const rate=0.3+STAFF.length*0.15+G.level*0.05;
+        const earn=Math.floor(Math.min(secs*rate,5000));
+        if(earn>0){
+          G.gold+=earn;G.earned+=earn;
+          tip(`📱 离线 ${Math.floor(secs/60)}分，赚了 ${earn} 金币！`);
+        }
+      }
+    }
+    localStorage.setItem('hp_last',String(now));
+  }catch(e){}
+}
+
+// ============================================================
+// CUSTOMER TYPES
+// ============================================================
+const CUST_TYPES=[
+  {id:'elderly',label:'🧓 老人',patBase:40,spdMod:0.7,spendMult:0.5,
+   chars:[C.WHITE,C.SKIN,C.BROWN,C.DGRAY,C.BLACK],
+   weight:[30,20,10,5,3]},
+  {id:'normal',label:'👤 食客',patBase:30,spdMod:1.0,spendMult:1.0,
+   chars:[C.BLACK,C.SKIN,C.RED,C.DGRAY,C.BLACK],
+   weight:[40,35,30,25,20]},
+  {id:'couple',label:'👫 情侣',patBase:35,spdMod:0.9,spendMult:1.5,
+   chars:[C.BROWN,C.SKIN2,C.PINK,C.BROWN,C.BLACK],
+   weight:[15,20,20,20,17]},
+  {id:'family',label:'👨‍👩‍👧 家庭',patBase:25,spdMod:0.8,spendMult:1.2,
+   chars:[C.BLACK,C.SKIN3,C.GREEN,C.BROWN,C.BLACK],
+   weight:[10,15,20,20,20]},
+  {id:'office',label:'🧑‍💼 白领',patBase:15,spdMod:1.2,spendMult:1.8,
+   chars:[C.DGRAY,C.SKIN,C.BLUE,C.DGRAY,C.BLACK],
+   weight:[5,8,12,18,20]},
+  {id:'rich',label:'🤑 土豪',patBase:20,spdMod:1.0,spendMult:4.0,
+   chars:[C.GOLD,C.SKIN3,C.ORANGE,C.DGRAY,C.BLACK],
+   weight:[0,2,5,8,12]},
+  {id:'vip',label:'⭐ VIP',patBase:10,spdMod:1.1,spendMult:6.0,
+   chars:[C.DRED,C.SKIN2,C.PURPLE,C.BROWN,C.BLACK],
+   weight:[0,0,3,4,8]},
+];
+// 预生成各类型角色精灵图
+CUST_TYPES.forEach(t=>{t.cs=mkChar(...t.chars)});
+
+function pickCustType(){
+  // 按等级映射到 tier: 1-3=铁,4-6=锡,7-9=铜,10-12=银,13+=金
+  const tier=G.level<=3?0:G.level<=6?1:G.level<=9?2:G.level<=12?3:4;
+  const weights=CUST_TYPES.map(t=>t.weight[tier]||0);
+  const total=weights.reduce((a,b)=>a+b,0);
+  if(total<=0)return CUST_TYPES[0];
+  let r=Math.random()*total;
+  for(let i=0;i<CUST_TYPES.length;i++){r-=weights[i];if(r<=0)return CUST_TYPES[i];}
+  return CUST_TYPES[0];
+}
+
+// ============================================================
+// 三评分 + 等级系统
+// ============================================================
+// 餐厅等级定义
+const RANKS=[
+  {lv:1,name:'铁Ⅰ',need:{food:0,serv:0,fac:0},unlock:'基础开业'},
+  {lv:2,name:'铁Ⅱ',need:{food:3,serv:2,fac:0},unlock:'客流提升'},
+  {lv:3,name:'铁Ⅲ',need:{food:8,serv:5,fac:2},unlock:'解锁更多顾客'},
+  {lv:4,name:'锡Ⅰ',need:{food:15,serv:10,fac:5},unlock:'包间系统'},
+  {lv:5,name:'锡Ⅱ',need:{food:25,serv:18,fac:12},unlock:''},
+  {lv:6,name:'锡Ⅲ',need:{food:40,serv:28,fac:22},unlock:''},
+  {lv:7,name:'铜Ⅰ',need:{food:60,serv:40,fac:35},unlock:'游戏机'},
+  {lv:8,name:'铜Ⅱ',need:{food:85,serv:55,fac:50},unlock:''},
+  {lv:9,name:'铜Ⅲ',need:{food:115,serv:75,fac:68},unlock:''},
+  {lv:10,name:'银Ⅰ',need:{food:150,serv:100,fac:90},unlock:'二楼演艺厅'},
+  {lv:11,name:'银Ⅱ',need:{food:200,serv:130,fac:120},unlock:''},
+  {lv:12,name:'银Ⅲ',need:{food:260,serv:170,fac:155},unlock:''},
+  {lv:13,name:'金Ⅰ',need:{food:330,serv:220,fac:200},unlock:'自助厅'},
+  {lv:14,name:'金Ⅱ',need:{food:420,serv:280,fac:260},unlock:''},
+  {lv:15,name:'金Ⅲ',need:{food:520,serv:350,fac:330},unlock:'钻石'},
+];
+
+// 三评分：初始化为0
+G.foodRating=0;G.servRating=0;G.facRating=0;
+
+function calcRatings(){
+  // 美食评分 = 已服务顾客数 + 菜品收入累计/50
+  G.foodRating=Math.floor(G.served*1.0+G.earned*0.02);
+  // 服务评分 = 员工数×15 + 已服务顾客×0.5 + 摸鱼唤醒次数（好感）
+  G.servRating=Math.floor(STAFF.length*15+G.served*0.5);
+  // 设施评分 = 总收入/50 + 当前金币/20
+  G.facRating=Math.floor(G.earned*0.02+G.gold*0.05);
+}
+
+function checkRankUp(){
+  calcRatings();
+  const cur=RANKS[G.level-1];
+  if(!cur)return;
+  // 当前评分满足下一等级需求？
+  const next=RANKS[G.level];
+  if(!next)return;
+  const n=next.need;
+  if(G.foodRating>=n.food&&G.servRating>=n.serv&&G.facRating>=n.fac){
+    G.level++;
+    G.diamond=(G.diamond||0)+Math.floor(G.level/2);
+    const nn=RANKS[G.level-1];
+    tip(`🎉 升级！${nn.name} ${nn.unlock?'→ '+nn.unlock:''}`);
+    // 更新生成间隔
+    calcRatings();
+  }
 }
 
 // ============================================================
@@ -273,14 +666,18 @@ function lvlUp(){
 function checkout(cu){
   if(cu.st!=='done')return;
   const bp=cu.want?.p??50;
+  const sm=cu.custType?cu.custType.spendMult:1.0;
   const sb=1+(cu.sat-50)/100;
-  const inc=Math.max(1,Math.floor(bp*sb));
+  const inc=Math.max(1,Math.floor(bp*sm*sb*(G._priceMult||1)));
   G.gold+=inc;G.earned+=inc;G.served++;G.exp+=Math.floor(inc*0.1);
-  lvlUp();
+  checkRankUp();
+  // 清理可能存在的结账任务（防止钱女士重复走过来）
+  removeTask(t=>t.type==='checkout'&&t.tid===cu.id);
   cu.st='wout';cu.wp=[{x:DOOR.x,y:DOOR.y+DOOR.h-4},{x:DOOR.x,y:ROAD_Y},
     {x:cu.x<DOOR.x?CAM.x-30:CAM.x+W+30,y:ROAD_Y}];
   cu.wpi=0;cu.tx=cu.wp[0].x;cu.ty=cu.wp[0].y;cu.dir=cu.tx>cu.x?1:-1;
-  tip(`💰 +${inc}金币！`);
+  const typeName=cu.custType?cu.custType.label:'顾客';
+  tip(`💰 ${typeName} +${inc}金币！`);
 }
 
 // ============================================================
@@ -294,6 +691,44 @@ function wp(e){
 }
 
 function hc(mx,my){
+  // Check all hire buttons via list of potential positions
+  const hireRoles=['wang','luo','qian','xiao','xue','achang','yuge'];
+  const hireFlags={wang:_wangHired,luo:_luoHired,qian:_qianHired,
+    xiao:_xiaoHired,xue:_xueHired,achang:_achangHired,yuge:_yugeHired};
+  let btnIdx=0;
+  for(const key of hireRoles){
+    if(!hireFlags[key]){
+      const role=SROLES[key];
+      if(!role)continue;
+      // Skip if unlock level not reached
+      if((role.unlockLv||0)>G.level){btnIdx++;continue;}
+      const bX=W-88,bY=32+btnIdx*24,bW=84,bH=20;
+      if(mx>=bX&&mx<=bX+bW&&my>=bY&&my<=bY+bH){
+        if(G.gold>=role.cost)hireStaff(key);
+        else tip(`💰 需 ${role.cost} 金才能招募`);
+        return;
+      }
+      btnIdx++;
+    }
+  }
+  // Research button
+  if(_researchBtn&&mx>=_researchBtn.x&&mx<=_researchBtn.x+_researchBtn.w
+    &&my>=_researchBtn.y&&my<=_researchBtn.y+_researchBtn.h){
+    if(!G._researching)startResearch();
+    return;
+  }
+  // Stove upgrade button
+  if(_upgradeBtn&&mx>=_upgradeBtn.x&&mx<=_upgradeBtn.x+_upgradeBtn.w
+    &&my>=_upgradeBtn.y&&my<=_upgradeBtn.y+_upgradeBtn.h){
+    const lv=G._stoveLv||0,cost=80+lv*40;
+    if(G.gold>=cost&&lv<5){
+      G.gold-=cost;G._stoveLv=lv+1;
+      tip(`🔧 灶台升级到 Lv.${lv+1}！烹饪更快了`);
+      fxBurst(560,STRIP.bot+50,C.ORANGE,6);
+      _upgradeBtn=null;
+    }
+    return;
+  }
   // Stoves — click to serve done food
   STOVES.forEach(st=>{
     const sx=st.x-CAM.x;
@@ -306,6 +741,21 @@ function hc(mx,my){
     const tx=t.cx-t.w/2-CAM.x;
     if(mx>=tx&&mx<=tx+t.w&&my>=t.y&&my<=t.y+t.h){
       if(t.state==='dirty'){t.state='cleaning';t._ct=0;tip('🧹 收拾桌子中...');}
+    }
+  });
+  // Staff — 唤醒摸鱼员工
+  E.forEach(e=>{
+    if(e.type!=='staff')return;
+    const ex=e.x-CAM.x;
+    if(Math.abs(mx-ex)<24&&Math.abs(my-(e.y-20))<28){
+      if(e.st==='slacking'){
+        e.st='staff_idle';e._slackTimer=0;e._taskCount=0;
+        const bonus=5+Math.floor(Math.random()*10);
+        G.gold+=bonus;
+        tip(`💤 ${SROLES[e.role].label}被叫醒！+${bonus}金币`);
+        fxBurst(e.x,e.y,C.YELLOW,4);
+      }
+      return;
     }
   });
   // Customers — confirm order or checkout
@@ -352,7 +802,7 @@ function tip(m){
   document.getElementById('tip').textContent=m;
   if(tipT)clearTimeout(tipT);
   tipT=setTimeout(()=>{
-    document.getElementById('tip').textContent='👆 路边来客人→进门→接单→厨房自动做→上菜→结账→收拾';
+    document.getElementById('tip').textContent='👆 点右侧招人，员工自动干活！';
     tipT=null;
   },4000);
 }
@@ -364,7 +814,14 @@ let st=0,pt=0;
 
 function upd(dt){
   G.gt+=dt;
-  st+=dt;if(st>3.5&&E.filter(e=>e.type==='cust'&&e.st!=='left').length<6
+  // 每30帧刷新一次评分
+  if(G.gt%0.5<dt)calcRatings();
+  // 烹饪速度升级效果：每次升级灶台maxP减少0.5
+  const stoveSpeed=Math.max(2.5,4-Math.floor((G._stoveLv||0)*0.5));
+  // 基于等级的生成间隔：铁级5s→金级1s
+  const spawnInterval=Math.max(1,5-G.level*0.28);
+  const maxCust=Math.min(8,4+Math.floor(G.level/2));
+  st+=dt;if(st>spawnInterval&&E.filter(e=>e.type==='cust'&&e.st!=='left').length<maxCust
     &&TABLES.some(t=>t.state==='clean')){st=0;spawnCust();}
   pt+=dt;if(pt>4&&E.filter(e=>e.type==='ped'&&e.st!=='left').length<2){pt=0;spawnPed();}
   E.forEach(e=>ENT.upd(e,dt));
@@ -375,14 +832,60 @@ function upd(dt){
     if(!s.busy&&orderQ.some(o=>!o.as)){
       const o=orderQ.find(o=>!o.as);
       o.as=true;o.sid=s.id;s.busy=true;s.progress=0;
-      s.maxP=4+Math.random()*2;s.orderId=o.id;
+      s.maxP=Math.max(2,4+Math.random()*2-(G._stoveLv||0)*0.4);s.orderId=o.id;
     }
-    if(s.busy)s.progress+=dt;
+    if(s.busy){
+      s.progress+=dt;
+      // 烹饪完成 → 创建上菜任务（员工系统接管）
+      if(s.progress>=s.maxP&&!s._tasked){
+        s._tasked=true;
+        addTask('serve',s.id,s.x+s.w/2,s.y-10);
+      }
+    }else{
+      s._tasked=false;
+    }
   });
-  // Table cleaning progress
+  // Table cleaning progress + 员工系统
   TABLES.forEach(t=>{
     if(t.state==='cleaning'){t._ct=(t._ct||0)+dt;if(t._ct>3){t.state='clean';t._ct=0;}}
   });
+  // 每分钟收益追踪
+  G._epmTimer+=dt;
+  if(G._epmTimer>30){
+    G._epmRate=Math.floor((G.earned-G._epmStart)*2);
+    G._epmStart=G.earned;
+    G._epmTimer=0;
+  }
+  // 员工自动招募
+  if(!_wangHired&&G.served>=3&&!STAFF.some(s=>s.role==='wang')
+    &&G.gold>=SROLES.wang.cost){
+    hireStaff('wang');
+  }
+  if(!_qianHired&&G.served>=8&&!STAFF.some(s=>s.role==='qian')
+    &&G.gold>=SROLES.qian.cost){
+    hireStaff('qian');
+  }
+  if(!_luoHired&&G.served>=5&&!STAFF.some(s=>s.role==='luo')
+    &&G.gold>=SROLES.luo.cost){
+    hireStaff('luo');
+  }
+  // 菜品研发进度
+  if(G._researching){
+    G._researching.progress+=dt;
+    if(G._researching.progress>=G._researching.maxTime){
+      G._researched.push(G._researching.id);
+      G._priceMult=RESEARCH.filter(r=>G._researched.includes(r.id)).reduce((a,r)=>a+(r.mult-1),1)+1;
+      tip(`🎉 研发完成！${G._researching.name}（客单×${G._priceMult.toFixed(2)}）`);
+      G._researching=null;
+    }
+  }
+  // 定期存档（离线收益用）
+  G._saveTimer=(G._saveTimer||0)+dt;
+  if(G._saveTimer>5){
+    G._saveTimer=0;
+    try{localStorage.setItem('hp_last',String(Date.now()));}catch(e){}
+    saveGame();
+  }
 }
 
 // ============================================================
@@ -412,9 +915,24 @@ function drawStrip1(cx2){
   const s=STRIP.top,w=WW;
   // Wall pattern
   r(0,s,W,SH,C.WALL);
+  // Ceiling border
+  r(0,s,W,6,C.DBRN);
+  // Brick wall pattern
   for(let wx=0;wx<w;wx+=24){
-    const ox=wx-cx2;if(ox>-24&&ox<W)pr(ox,s+4,12,12,C.DWALL);
+    const ox=wx-cx2;if(ox>-24&&ox<W)pr(ox,s+8,20,14,C.DWALL);
   }
+  // Hanging lanterns (3个)
+  [120,360,600].forEach(lx=>{
+    const lox=lx-cx2;
+    if(lox>-20&&lox<W){
+      pr(lox-2,s-2,8,3,C.GOLD);
+      pr(lox-3,s+1,12,2,C.GOLD);
+      r(lox-1,s+3,6,8,C.RED);
+      r(lox-3,s+4,10,6,C.RED);
+      r(lox-1,s+11,6,2,C.GOLD);
+      r(lox,s+13,4,3,C.GOLD);
+    }
+  });
   // Window decoration (between tables)
   const wnx=240-cx2;
   if(wnx>-60&&wnx<W){
@@ -429,11 +947,28 @@ function drawStrip1(cx2){
 
 function drawStrip2(cx2){
   const s=STRIP.mid,w=WW;
-  // Different wall color
+  // Warm wall color
   r(0,s,W,SH,'#f5e8d0');
+  // Ceiling border
+  r(0,s,W,6,C.DBRN);
+  // Wall stripe pattern
   for(let wx=0;wx<w;wx+=32){
-    const ox=wx-cx2;if(ox>-32&&ox<W)pr(ox,s+30,16,8,C.DFLOOR);
+    const ox=wx-cx2;if(ox>-32&&ox<W){
+      pr(ox,s+20,16,8,C.DFLOOR);
+      pr(ox+8,s+40,16,8,C.DFLOOR);
+    }
   }
+  // Hanging lanterns (2个)
+  [280,560].forEach(lx=>{
+    const lox=lx-cx2;
+    if(lox>-20&&lox<W){
+      pr(lox-2,s-2,8,3,C.GOLD);
+      r(lox-1,s+3,6,8,C.RED);
+      r(lox-3,s+4,10,6,C.RED);
+      r(lox-1,s+11,6,2,C.GOLD);
+      r(lox,s+13,4,3,C.GOLD);
+    }
+  });
   // Wall decoration: hanging picture
   const pxx=440-cx2;
   if(pxx>-40&&pxx<W){
@@ -442,6 +977,22 @@ function drawStrip2(cx2){
     r(pxx+8,s+18,12,4,C.GOLD);                 // decorative line
     pr(pxx+12,s+24,4,6,C.GREEN);               // plant
     r(pxx+2,s+14,3,3,C.YELLOW);
+  }
+  // Decorative shelf with vase (right side)
+  const shelx=600-cx2;
+  if(shelx>-40&&shelx<W){
+    r(shelx,s+30,32,3,C.WOOD);                  // shelf
+    pr(shelx+6,s+12,8,18,C.DGRAY);             // vase
+    pr(shelx+8,s+8,4,6,C.GREEN);               // plant leaves
+    pr(shelx+12,s+10,4,4,C.GREEN);             // more leaves
+    pr(shelx+4,s+16,12,2,C.GOLD);              // vase decoration
+  }
+  // Menu board near center-right
+  const menx=500-cx2;
+  if(menx>-30&&menx<W){
+    bx(menx,s+8,24,20,C.DBRN,'#fff8e0',2);
+    tx('🔥',menx+8,s+14,C.RED,10);
+    tx('推 荐',menx+4,s+24,C.DBRN,9);
   }
   r(0,s+SH-6,W,6,C.WOOD);
   TXTAB(cx2,TABLES.filter(t=>t.y>=s&&t.y<s+SH));
@@ -459,7 +1010,11 @@ function TXTAB(cx2,tables){
         const sy=t.y-2-(G.gt*2%10);
         cx.globalAlpha=0.12;pr(tx+t.w/2-4,sy,8,4,C.WHITE);cx.globalAlpha=1;
       }
-      if(t.state==='dirty')tx('🧹 点击收拾',tx+t.w/2-24,t.y+t.h-18,C.WHITE,11);
+      if(t.state==='dirty'){
+        const hasCleaner=STAFF.some(s=>s.role==='wang'&&TASKS.some(tt=>tt.type==='clean'&&tt.tid===t.id));
+        if(hasCleaner)tx('🧹 小王收拾中',tx+t.w/2-30,t.y+t.h-18,C.LGRAY,10);
+        else tx('🧹 点击收拾',tx+t.w/2-24,t.y+t.h-18,C.WHITE,11);
+      }
       if(t.state==='cleaning'){
         const cp=Math.min(1,(t._ct||0)/3);
         r(tx+4,t.y+t.h-6,(t.w-8)*cp,3,C.GREEN);
@@ -498,6 +1053,8 @@ function drawStrip3(cx2){
 
   // Kitchen label
   tx('🍳 厨房区 →',450-cx2,STRIP.bot+8,C.DGRAY,12);
+  const slv=G._stoveLv||0;
+  if(slv>0)tx(`Lv.${slv}`,580-cx2,STRIP.bot+20,C.ORANGE,10);
 
   // Stoves
   STOVES.forEach(st=>{
@@ -509,21 +1066,33 @@ function drawStrip3(cx2){
       if(st.busy){
         const p=Math.min(1,st.progress/st.maxP);
         const done=p>=1;
-        // Flame effect
+        // Flame effect (等级越高火焰越蓝)
         if(!done){
           const fh=5+Math.sin(G.gt*18+st.id)*2;
+          const slv=G._stoveLv||0;
+          const fColor=slv>=4?C.TEAL:slv>=2?'#88aaff':C.ORANGE;
           for(let f=0;f<fh;f++){
             const a=Math.sin(G.gt*20+st.id*3+f*3)>0?0.7:0.3;
             cx.globalAlpha=a;
-            pr(sx+20-f*.5,st.y-8-f*2,6+f,3,C.ORANGE);
+            pr(sx+20-f*.5,st.y-8-f*2,6+f,3,fColor);
           }
+          cx.globalAlpha=1;
+          // Steam effect
+          const stm=Math.sin(G.gt*4+st.id*7)*0.5+0.5;
+          cx.globalAlpha=stm*0.15;
+          r(sx+16+Math.sin(G.gt*6+st.id)*8,st.y-16-Math.sin(G.gt*3+st.id)*4,8,6,C.WHITE);
+          r(sx+30+Math.cos(G.gt*5+st.id)*6,st.y-14-Math.cos(G.gt*4+st.id)*3,6,4,C.WHITE);
           cx.globalAlpha=1;
         }
         // Progress bar
         bx(sx+6,st.y-22,st.w-12,7,C.DBRN,C.BLACK,2);
         const bc=done?C.YELLOW:C.ORANGE;
         r(sx+8,st.y-20,(st.w-16)*p,5,bc);
-        if(done)tx('🍲 点击上菜',sx+10,st.y+st.h-8,C.YELLOW,12);
+        if(done){
+          const hasServer=STAFF.some(s=>s.role==='wang'&&TASKS.some(t=>t.type==='serve'&&t.tid===st.id));
+          if(hasServer)tx('👨‍🍳 小王送菜',sx+6,st.y+st.h-8,C.LGRAY,10);
+          else tx('🍲 点击上菜',sx+10,st.y+st.h-8,C.YELLOW,12);
+        }
         else tx(`⏳${Math.floor(p*100)}%`,sx+20,st.y+st.h-8,C.LGRAY,9);
       }else{
         const has=orderQ.some(x=>!x.as);
@@ -544,8 +1113,30 @@ function drawRoad(cx2){
   for(let bx=0;bx<WW;bx+=12){
     const ox=bx-cx2;if(ox>-12&&ox<W)pr(ox,s+10,6,4,C.DBRICK);
   }
+  // Welcome signboard above door
+  const sgx=DOOR.x-cx2-24;
+  if(sgx>-50&&sgx<W){
+    bx(sgx,s-2,52,20,C.DBRN,C.GOLD,3);
+    r(sgx+4,s+2,44,14,C.RED);
+    tx('🔥 老火锅',sgx+6,s+14,C.YELLOW,11);
+  }
   // Door bottom (continues from restaurant)
   r(DOOR.x-cx2-2,s-4,DOOR.w+4,8,C.DBRN);
+  // Potted plants by entrance
+  const plx=DOOR.x-cx2-26;
+  if(plx>-30&&plx<W){
+    pr(plx,s+16,8,12,C.DGRAY);        // pot
+    r(plx+1,s+27,6,2,C.BLACK);         // pot bottom
+    pr(plx,s+10,8,8,C.GREEN);          // leaves
+    pr(plx+2,s+6,4,6,C.DGREEN);        // dark leaves
+  }
+  const prx=DOOR.x-cx2+DOOR.w+6;
+  if(prx>-30&&prx<W){
+    pr(prx,s+16,8,12,C.DGRAY);
+    r(prx+1,s+27,6,2,C.BLACK);
+    pr(prx,s+10,8,8,C.GREEN);
+    pr(prx+2,s+6,4,6,C.DGREEN);
+  }
 
   // Sidewalk
   r(0,s+30,W,32,C.SWALK);
@@ -579,10 +1170,10 @@ function drawEnts(cx2){
     if(ex<-50||ex>W+30)return;
     const sc=1.5,ch=12*PU*sc;
     if(e.type==='cust'||e.type==='ped'){
-      const k=e.type==='ped'?'ped':'c'+(e.va%8),sp=CS[k];
+      const sp=e.type==='ped'?CS.ped:(e.custType?e.custType.cs:CS.ped);
       if(!sp)return;
       // Sitting
-      if(e.st==='seat'||e.st==='eat'||e.st==='done'){
+      if(e.st==='seat'||e.st==='eat'||e.st==='done'||e.st==='angry'){
         const ba=sp[0],sy=ey-ch+16;
         for(let r2=0;r2<6;r2++)
           for(let c2=0;c2<8;c2++){
@@ -597,10 +1188,45 @@ function drawEnts(cx2){
           const ep=Math.min(1,e.ep);
           r(ex+4,ey-4,40*ep,3,C.ORANGE);
           tx('🍜',ex+42,ey-4,C.CREAM,10);
+          // 筷子动画
+          const cp=Math.sin(G.gt*10+e.id)*0.5+0.5;
+          tx('🥢',ex+28+cp*4,ey-ch+38,C.WHITE,10);
+          // 热汽
+          if(Math.random()<0.15){
+            cx.globalAlpha=0.1;
+            r(ex+10+Math.random()*10,ey-ch+20+Math.random()*8,4,3,C.WHITE);
+            cx.globalAlpha=1;
+          }
         }
         if(e.st==='done'){
           const bl=Math.sin(G.gt*4)>0;
-          if(bl)tx('💰 结账',ex+8,sy-8,C.GOLD,14);
+          if(bl){
+            if(STAFF.some(s=>s.role==='qian'&&TASKS.some(t=>t.type==='checkout'&&t.tid===e.id)))
+              tx('💼钱女士结账',ex+2,sy-8,C.LGRAY,10);
+            else tx('💰 结账',ex+8,sy-8,C.GOLD,14);
+          }
+        }
+        // 耐心条 + 类型标签 (坐着的顾客)
+        if(e.custType&&e.maxPat>0&&(e.st==='seat'||e.st==='angry')){
+          const pct=Math.max(0,Math.min(1,e.pat/e.maxPat));
+          const barW=36,barY=sy-6;
+          r(ex+4,barY,barW,3,'rgba(0,0,0,.5)');
+          const barC=pct>0.5?C.GREEN:pct>0.25?C.GOLD:C.RED;
+          if(pct>0)r(ex+4,barY,barW*pct,3,barC);
+          // 类型名
+          tx(e.custType.label,ex+4,barY-8,C.WHITE,8);
+          // 耐心低时闪烁提示
+          if(pct<0.3&&e.st==='seat'&&!e.order){
+            const fl=Math.sin(G.gt*6)>0;
+            if(fl)tx('⚠️',ex+30,barY-9,C.RED,12);
+          }
+        }
+        // 愤怒状态
+        if(e.st==='angry'){
+          const fl=Math.sin(G.gt*8)>0;
+          if(fl){tx('💢',ex+24,sy-14,C.RED,16);}
+          cx.globalAlpha=0.3;pr(ex,ey-16,48,28,C.RED);cx.globalAlpha=1;
+          tx('😤 等不及走了!',ex-4,sy-10,C.RED,10);
         }
       }else if(e.st==='walk'||e.st==='wout'||e.st==='to_door'){
         const f=sp[e.f],by=Math.floor(Math.sin(G.gt*10+e.id||0)*1.5);
@@ -614,9 +1240,57 @@ function drawEnts(cx2){
       }
       // Shadow
       cx.globalAlpha=0.15;pr(ex+6,ey-2,8*PU*sc-12,4,C.BLACK);cx.globalAlpha=1;
+    }else if(e.type==='staff'){
+      const role=SROLES[e.role];if(!role)return;
+      const sp=role.cs,sc2=1.5,ch2=12*PU*sc2;
+      if(e.st==='staff_idle'||e.st==='staff_walk'){
+        const f=sp[e.f],by=Math.floor(Math.sin(G.gt*10+e.id||0)*1.5);
+        dr(f,ex,ey-ch2+by,sc2);
+        if(e.st==='staff_idle')tx('⏳',ex-4,ey-ch2-6,C.LGRAY,9);
+      }else if(e.st==='staff_work'){
+        const ba=sp[0],sy2=ey-ch2+16;
+        for(let r2=0;r2<6;r2++)
+          for(let c2=0;c2<8;c2++){
+            const col=ba[r2]?.[c2];
+            if(col)cx.fillRect((ex+c2*PU*sc2)|0,(sy2+r2*PU*sc2)|0,PU*sc2,PU*sc2);
+          }
+        // 工作进度条
+        const pct=Math.min(1,(e._workTimer||0)/(e.task?e.taskDur[e.task.type]||3:3));
+        r(ex-4,ey-6,20*pct,3,C.YELLOW);
+        // 任务图标
+        if(e.task){
+          const icons={order:'📋',serve:'🍲',clean:'🧹',checkout:'💰'};
+          tx(icons[e.task.type]||'⚙',ex,ey-18,C.WHITE,12);
+        }
+      }else if(e.st==='slacking'){
+        // 摸鱼状态：原地站立 + ZZZ气泡
+        const ba=sp[0],sy2=ey-ch2+16;
+        for(let r2=0;r2<6;r2++)
+          for(let c2=0;c2<8;c2++){
+            const col=ba[r2]?.[c2];
+            if(col)cx.fillRect((ex+c2*PU*sc2)|0,(sy2+r2*PU*sc2)|0,PU*sc2,PU*sc2);
+          }
+        // ZZZ闪烁
+        const zz=Math.sin(G.gt*5)>0?'💤':'😴';
+        tx(zz,ex+12,ey-ch2-8,C.LGRAY,14);
+        // 摸鱼进度条（剩余时间）
+        const rem=Math.max(0,(e._slackTimer||0)/8);
+        r(ex-4,ey-6,20*rem,3,'rgba(200,200,100,.4)');
+      }
+      // 头顶角色标签
+      tx(role.label,ex-6,ey-ch2-10,C.WHITE,9);
+      // Shadow
+      cx.globalAlpha=0.15;pr(ex+4,ey-2,16,4,C.BLACK);cx.globalAlpha=1;
     }else if(e.type==='food_fx'){
       const p=1-Math.max(0,Math.min(1,(e._a||0)/(e.life||0.5)));
-      dr(SPL,e.x+(e.tx-e.x)*(1-p)-cx2-6,e.y+(e.ty-e.y)*(1-p)-4,0.6);
+      if(e._fxColor){
+        // Burst particle
+        cx.globalAlpha=p*0.8;
+        r(ex-2,e.y-2,4,4,e._fxColor);
+        cx.globalAlpha=1;
+      }else{
+        dr(SPL,e.x+(e.tx-e.x)*(1-p)-cx2-6,e.y+(e.ty-e.y)*(1-p)-4,0.6);
+      }
     }
   });
 }
@@ -624,11 +1298,108 @@ function drawEnts(cx2){
 function drawHUD(cx2){
   r(0,0,W,28,'rgba(0,0,0,.7)');
   dr(SCO,4,3,0.7);tx(` ${G.gold}`,24,16,C.YELLOW,13);
-  tx(`Lv.${G.level}`,92,16,C.CREAM,13);
+  if(G._epmRate>0)tx(`${Math.floor(G._epmRate)}/分`,56,16,C.GOLD,9);
+  const rank=RANKS[G.level-1]||{name:'???'};
+  tx(rank.name,90,16,C.CREAM,12);
   const cnt=E.filter(e=>e.type==='cust'&&e.st!=='left').length;
   tx(`👥 ${cnt}`,150,16,C.WHITE,12);
   tx(`☑ ${G.served}`,210,16,C.LGRAY,12);
   if(orderQ.length>0)tx(`📋 ${orderQ.length}`,270,16,C.ORANGE,12);
+  if(G._priceMult>1)tx(`×${G._priceMult.toFixed(2)}`,325,16,C.TEAL,10);
+  // 三评分进度（置于HUD下方背景条内）
+  if(STAFF.length>0||G.served>3){
+    const nextR=RANKS[G.level];
+    const rV=[G.foodRating||0,G.servRating||0,G.facRating||0];
+    const rN=['food','serv','fac'];
+    const rL=['🍲美食','👤服务','🛋设施'];
+    const rC=[C.RED,C.BLUE,C.GREEN];
+    for(let i=0;i<3;i++){
+      const x=2+i*36,y=30,w=32,h=5;
+      r(x,y,w,h,'rgba(0,0,0,.25)');
+      const max=nextR?nextR.need[rN[i]]||50:50;
+      const pct=Math.min(1,rV[i]/Math.max(1,max));
+      if(pct>0)r(x+1,y+1,(w-2)*pct,h-2,rC[i]);
+      tx(rL[i],x,y+14,rC[i],8);
+      tx(`${rV[i]}`,x+16,y+14,C.WHITE,7);
+    }
+    if(nextR)tx(`→${nextR.name}`,116,38,C.YELLOW,9);
+  }
+  // 低耐心顾客警告
+  const impat=E.filter(e=>e.type==='cust'&&e.st==='seat'&&e.pat>0&&e.pat/e.maxPat<0.3);
+  if(impat.length>0){
+    const fl=Math.sin(G.gt*5)>0;
+    if(fl)tx(`⚠️${impat.length}`,345,16,C.RED,11);
+  }
+  // 招聘按钮（全部角色，按等级解锁）
+  let btnIdx=0;
+  const hireOrder=['wang','luo','qian','xiao','xue','achang','yuge'];
+  const hiredMap={wang:_wangHired,luo:_luoHired,qian:_qianHired,
+    xiao:_xiaoHired,xue:_xueHired,achang:_achangHired,yuge:_yugeHired};
+  hireOrder.forEach(key=>{
+    if(hiredMap[key])return;
+    const role=SROLES[key];if(!role)return;
+    if((role.unlockLv||0)>G.level)return; // 等级不够，不显示
+    const bX=W-88,bY=32+btnIdx*24,bW=84,bH=20;
+    const canHire=G.gold>=role.cost;
+    r(bX,bY,bW,bH,canHire?'rgba(255,200,0,.15)':'rgba(80,80,80,.2)');
+    bx(bX,bY,bW,bH,canHire?C.GOLD:C.GRAY,0,2);
+    tx(canHire?role.label:'需 '+role.cost+'金',bX+6,bY+14,canHire?C.YELLOW:C.GRAY,9);
+    btnIdx++;
+  });
+  // 厨房升级按钮
+  const stoveLv=G._stoveLv||0;
+  if(stoveLv<5){
+    const kCost=80+stoveLv*40;
+    const kX=W-88,kY=32+btnIdx*24+4,kW=84,kH=18;
+    const canUp=G.gold>=kCost;
+    r(kX,kY,kW,kH,canUp?'rgba(255,100,0,.15)':'rgba(80,80,80,.2)');
+    bx(kX,kY,kW,kH,canUp?C.ORANGE:C.GRAY,0,2);
+    tx(`🔧灶台Lv${stoveLv}`,kX+6,kY+8,C.LGRAY,8);
+    tx(canUp?`${kCost}金`:`缺${kCost}`,kX+54,kY+8,canUp?C.YELLOW:C.GRAY,8);
+    if(canUp)_upgradeBtn={x:kX,y:kY,w:kW,h:kH};
+    btnIdx++;
+  }else{
+    tx('🔧灶台已满级',W-98,32+btnIdx*24+8,C.GREEN,9);
+    btnIdx++;
+  }
+  // 研发按钮 + 进度
+  const rX=W-88,rY=32+btnIdx*24+4,rW=84,rH=18;
+  if(G._researching){
+    const pct=Math.min(1,G._researching.progress/G._researching.maxTime);
+    bx(rX,rY,rW,rH,C.DGRAY,C.BLACK,2);
+    r(rX+2,rY+2,(rW-4)*pct,rH-4,C.TEAL);
+    tx(`🔬${G._researching.name}`,rX+4,rY+8,C.WHITE,8);
+    tx(`${Math.floor(pct*100)}%`,rX+62,rY+8,C.YELLOW,8);
+    _researchBtn=null;
+  }else{
+    const avail=RESEARCH.filter(r=>G.level>=r.lv&&!G._researched.includes(r.id));
+    if(avail.length>0){
+      const cost=avail[0].cost;
+      const canRes=G.gold>=cost;
+      r(rX,rY,rW,rH,canRes?'rgba(0,200,200,.12)':'rgba(80,80,80,.2)');
+      bx(rX,rY,rW,rH,canRes?C.TEAL:C.GRAY,0,2);
+      tx('🔬研发菜品',rX+6,rY+8,canRes?C.WHITE:C.GRAY,9);
+      _researchBtn={x:rX,y:rY,w:rW,h:rH};
+    }else{
+      tx('🔬全部研发完成',rX-4,rY+8,C.GREEN,9);
+    }
+  }
+  // 员工状态面板（已入职的）
+  STAFF.forEach((s,i)=>{
+    const role=SROLES[s.role];if(!role)return;
+    const sx=4,sy=30+i*14,sw=108,sh=12;
+    r(sx,sy,sw,sh,'rgba(0,0,0,.4)');
+    tx(role.label.substr(0,5),sx+2,sy+10,C.WHITE,9);
+    const stIcons={staff_idle:'⏳',staff_walk:'🚶',staff_work:'⚙',slacking:'💤'};
+    tx(stIcons[s.st]||'❓',sx+44,sy+10,C.LGRAY,9);
+    // 点亮速度图标以示buff生效
+    if(s.st==='staff_walk'&&_yugeHired)tx('⚡',sx+80,sy+10,C.YELLOW,9);
+    if(s.task){
+      const tIcons={order:'📋',serve:'🍲',clean:'🧹',checkout:'💰'};
+      tx(tIcons[s.task.type]||'',sx+56,sy+10,C.YELLOW,9);
+    }
+  });
+  if(_yugeHired)tx('👔 于哥管理 全员+20%速度',4,30+STAFF.length*14+2,C.PURPLE,8);
   // Scroll indicator
   if(CAM.maxX>0){
     const pct=cx2/CAM.maxX;
@@ -670,7 +1441,10 @@ function loop(t){
 // ============================================================
 // START
 // ============================================================
-tip('🔥 顾客们正在路上走来...');
+loadGame();restoreStaff();
+checkOffline();
+if(_wangHired||_luoHired||_qianHired)tip('📂 进度已恢复！继续经营吧');
+else tip('🔥 老火锅开张！接待3批客人后可招员工');
 requestAnimationFrame(loop);
 </script>
 </body>
