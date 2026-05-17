@@ -1752,11 +1752,21 @@ function loop(t){
     const dt=Math.min(.1,(t-lt)/1000);lt=t;
     upd(dt);draw();
   } catch(e){
-    // 异常保护：防止单次错误卡死整个游戏
+    // 异常保护：防止单次错误卡死整个游戏，并在画布上显示错误信息
     console.error('⚠️',e);
     try{
-      // 清理异常实体（NaN坐标等）
       E=E.filter(e=>isFinite(e.x)&&isFinite(e.y));
+    }catch(_){}
+    // 在画布上直接绘制错误信息（覆盖掉可能的部分绘制）
+    try{
+      cx.fillStyle='#000';cx.font='bold 14px monospace';
+      cx.fillStyle='rgba(0,0,0,.85)';cx.fillRect(0,0,420,30);
+      cx.fillStyle='#ff4444';cx.fillText('⚠ 错误: '+e.message,10,18);
+      cx.fillStyle='#ffaa44';cx.font='11px monospace';
+      cx.fillText('保持这个页面，复制这段文字发给Cherry',10,46);
+      cx.fillStyle='#ccc';cx.font='10px monospace';
+      const lines=(e.stack||'').split('\n').slice(0,6);
+      lines.forEach((l,i)=>cx.fillText(l,10,68+i*14));
     }catch(_){}
   }
   requestAnimationFrame(loop);
